@@ -193,14 +193,14 @@ def apply(root) -> None:
     style.configure("TSeparator", background=BORDER)
 
     # Primary action, filled with the accent the way Windows 11 fills its
-    # default button. The label takes whichever of black and white the accent
-    # of the day can carry.
+    # default button. Both the label and the keyboard ring take whichever of
+    # black and white the accent of the day can carry.
     style.configure(
         "Accent.TButton",
         background=accent,
         foreground=on_accent,
         bordercolor=accent,
-        focuscolor=accent,
+        focuscolor=on_accent,
         borderwidth=0,
         padding=(18, 7),
         anchor="center",
@@ -212,7 +212,9 @@ def apply(root) -> None:
     )
 
     # The everyday actions beside it: lifted out of the window on a surface tone
-    # with a hairline border, the way Windows 11 draws a standard button.
+    # with a hairline border, the way Windows 11 draws a standard button. The
+    # ring has to be a colour the surface does not swallow, which is why it is
+    # not the fill: a ring the same tone as the button is no ring at all.
     style.configure(
         "Secondary.TButton",
         background=SURFACE,
@@ -220,7 +222,7 @@ def apply(root) -> None:
         bordercolor=BORDER,
         lightcolor=SURFACE,
         darkcolor=SURFACE,
-        focuscolor=SURFACE,
+        focuscolor=TEXT,
         borderwidth=1,
         padding=(18, 7),
         anchor="center",
@@ -240,7 +242,7 @@ def apply(root) -> None:
         bordercolor=BORDER,
         lightcolor=SURFACE,
         darkcolor=SURFACE,
-        focuscolor=SURFACE,
+        focuscolor=TEXT,
         borderwidth=1,
         padding=(18, 7),
         anchor="center",

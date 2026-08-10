@@ -154,3 +154,22 @@ def test_the_primary_button_label_is_readable_on_whatever_accent_is_set():
         assert theme.contrast_ratio(label, fill) >= 4.5
     finally:
         root.destroy()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="needs a Windows display")
+def test_every_button_shows_a_focus_ring_against_its_own_fill():
+    # 3.0 is the WCAG floor for a control outline rather than for text. A ring
+    # painted in the button's own fill scores 1.0 and cannot be seen at all.
+    root = _new_root()
+    try:
+        root.withdraw()
+        theme.apply(root)
+        from tkinter import ttk
+
+        style = ttk.Style(root)
+        for name in ("Accent.TButton", "Secondary.TButton", "Danger.TButton"):
+            fill = style.lookup(name, "background")
+            ring = style.lookup(name, "focuscolor")
+            assert theme.contrast_ratio(ring, fill) >= 3.0, name
+    finally:
+        root.destroy()
