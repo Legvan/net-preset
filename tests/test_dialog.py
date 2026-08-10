@@ -83,6 +83,30 @@ def test_whitespace_around_a_value_is_trimmed(root):
     dialog.destroy()
 
 
+def test_every_field_reaches_the_saved_profile(root):
+    # Filling the form and reading it back through value_of would only prove the
+    # entries hold what was put in them. This goes the other way, through the
+    # profile on_confirm builds, which is the path the optional fields take on
+    # their way out of the dialog.
+    dialog = ProfileDialog(root)
+    dialog.set_value("name", "SERWEROWNIA")
+    dialog.set_value("address", "10.0.0.5")
+    dialog.set_value("mask", "255.255.0.0")
+    dialog.set_value("gateway", "10.0.0.1")
+    dialog.set_value("dns", "10.0.0.1")
+    dialog.set_value("dns_alt", "8.8.8.8")
+    dialog.on_confirm()
+    assert dialog.result.profile == Profile(
+        name="SERWEROWNIA",
+        address="10.0.0.5",
+        mask="255.255.0.0",
+        gateway="10.0.0.1",
+        dns="10.0.0.1",
+        dns_alt="8.8.8.8",
+    )
+    dialog.destroy()
+
+
 def test_an_invalid_form_stays_open_and_marks_the_field(root):
     dialog = ProfileDialog(root)
     dialog.set_value("name", "ROGER")
