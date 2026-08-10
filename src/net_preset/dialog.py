@@ -95,9 +95,6 @@ class ProfileDialog(tk.Toplevel):
         self.bind("<Escape>", self._on_escape)
 
         self._build()
-        # Toplevels get their own frame from the window manager, so the dark
-        # title bar the theme gave the main window has to be asked for again.
-        theme.enable_dark_title_bar(self)
 
     # -- the seams the caller and the tests use ---------------------------------
 
@@ -175,10 +172,18 @@ class ProfileDialog(tk.Toplevel):
         self.transient(self.master)
         self._place_over_parent()
         self.deiconify()
+        # Nothing below may run any earlier than this. A window that is still
+        # withdrawn has no frame yet, and Tk builds it a new one whenever the
+        # transient or withdrawn state changes: a dark title bar asked for
+        # before the window is on the screen is set on a frame that is then
+        # thrown away, and the dialog opens as a white caption over a black
+        # form. A focus asked for that early is forgotten in the same way, and
+        # the first thing the user types goes nowhere. Both were seen happening.
+        self.wait_visibility()
+        # A Toplevel has its own frame, so it needs asking in its own right —
+        # the theme only dressed the main window.
+        theme.enable_dark_title_bar(self)
         self.grab_set()
-        # After the window is on the screen, not before: a focus asked for while
-        # it was still withdrawn is forgotten by the time it is mapped, and the
-        # dialog opens with the caret nowhere and the first keystroke lost.
         self._focus_first_gap()
         self.wait_window(self)
         # The window's X goes through `on_cancel`, but a parent that tears the
