@@ -91,8 +91,10 @@ def test_a_name_the_file_uses_twice_survives_once(tmp_path):
         (4, "Pominięto 4 nieprawidłowe ustawienia"),
         (5, "Pominięto 5 nieprawidłowych ustawień"),
         (12, "Pominięto 12 nieprawidłowych ustawień"),  # a teen, despite ending in 2
+        (13, "Pominięto 13 nieprawidłowych ustawień"),  # a teen, despite ending in 3
         (14, "Pominięto 14 nieprawidłowych ustawień"),  # a teen, despite ending in 4
         (22, "Pominięto 22 nieprawidłowe ustawienia"),
+        (23, "Pominięto 23 nieprawidłowe ustawienia"),  # ends in 3 and is not a teen
         (112, "Pominięto 112 nieprawidłowych ustawień"),  # the teens repeat every hundred
         (122, "Pominięto 122 nieprawidłowe ustawienia"),
     ],
