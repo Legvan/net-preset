@@ -1,7 +1,9 @@
 import json
 
+import pytest
+
 from net_preset.profile import Profile
-from net_preset.store import load_profiles, profiles_path, save_profiles
+from net_preset.store import _dropped_note, load_profiles, profiles_path, save_profiles
 
 ONE = Profile(name="ROGER", address="192.168.11.2", mask="255.255.255.0")
 TWO = Profile(
@@ -61,6 +63,42 @@ def test_one_invalid_entry_is_dropped_and_the_rest_survive(tmp_path):
     profiles, note = load_profiles(target)
     assert [profile.name for profile in profiles] == ["ROGER", "BIURO"]
     assert note
+
+
+def test_a_name_the_file_uses_twice_survives_once(tmp_path):
+    target = tmp_path / "profiles.json"
+    payload = {
+        "version": 1,
+        "profiles": [
+            {"name": "ROGER", "address": "192.168.11.2", "mask": "255.255.255.0"},
+            {"name": "roger", "address": "192.168.11.3", "mask": "255.255.255.0"},
+        ],
+    }
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    profiles, note = load_profiles(target)
+    # Each entry is judged against the names accepted before it, not against the whole
+    # file: comparing against the whole file would find the clash from both sides and
+    # drop the pair, leaving the operator with neither.
+    assert [(profile.name, profile.address) for profile in profiles] == [("ROGER", "192.168.11.2")]
+    assert note
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        (1, "Pominięto 1 nieprawidłowe ustawienie"),
+        (2, "Pominięto 2 nieprawidłowe ustawienia"),
+        (4, "Pominięto 4 nieprawidłowe ustawienia"),
+        (5, "Pominięto 5 nieprawidłowych ustawień"),
+        (12, "Pominięto 12 nieprawidłowych ustawień"),  # a teen, despite ending in 2
+        (14, "Pominięto 14 nieprawidłowych ustawień"),  # a teen, despite ending in 4
+        (22, "Pominięto 22 nieprawidłowe ustawienia"),
+        (112, "Pominięto 112 nieprawidłowych ustawień"),  # the teens repeat every hundred
+        (122, "Pominięto 122 nieprawidłowe ustawienia"),
+    ],
+)
+def test_the_note_counts_the_dropped_entries_in_polish(count, expected):
+    assert _dropped_note(count) == expected
 
 
 def test_an_entry_missing_a_required_key_is_dropped(tmp_path):
