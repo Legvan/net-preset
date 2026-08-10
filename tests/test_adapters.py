@@ -1,5 +1,6 @@
 import ctypes
 import sys
+import winreg
 
 import pytest
 
@@ -69,6 +70,11 @@ def test_an_adapter_missing_from_the_registry_is_kept():
 
 def test_the_media_lookup_ignores_guid_casing():
     assert is_ethernet(state(guid=ETHERNET_GUID.lower()), MEDIA) is True
+    # The rejection is what pins the lookup. Acceptance alone cannot fail: drop the
+    # casing defence and the miss lands on the fail-open branch, which also says True.
+    # A casing miss on the Bluetooth GUID is precisely how a PAN adapter would slip
+    # through as a real Ethernet card.
+    assert is_ethernet(state(guid=BLUETOOTH_GUID.lower()), MEDIA) is False
 
 
 def test_an_apipa_address_is_recognised():
@@ -158,6 +164,70 @@ def test_an_adapter_naming_nothing_reads_as_empty_text():
 def test_the_adapter_structure_matches_the_win32_layout():
     # One wrong field silently shifts every value that follows it.
     assert ctypes.sizeof(IP_ADAPTER_ADDRESSES) == 448
+
+
+class FakeRegistryKey:
+    """The little of a registry key that `physical_media_types` actually touches."""
+
+    def __init__(self, values=None, children=None):
+        self.values = values or {}
+        self.children = children or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def install_fake_registry(monkeypatch, root: FakeRegistryKey) -> None:
+    """Answer the three winreg calls behind `physical_media_types` out of `root`."""
+
+    def open_key(parent, name):
+        if not isinstance(parent, FakeRegistryKey):
+            return root  # the only real handle it opens is HKEY_LOCAL_MACHINE
+        try:
+            return parent.children[name]
+        except KeyError:
+            raise OSError(f"no subkey named {name}") from None
+
+    def enum_key(key, index):
+        try:
+            return list(key.children)[index]
+        except IndexError:
+            raise OSError("no more subkeys") from None
+
+    def query_value(key, name):
+        try:
+            return key.values[name], winreg.REG_SZ
+        except KeyError:
+            raise OSError(f"no value named {name}") from None
+
+    monkeypatch.setattr(winreg, "OpenKey", open_key)
+    monkeypatch.setattr(winreg, "EnumKey", enum_key)
+    monkeypatch.setattr(winreg, "QueryValueEx", query_value)
+
+
+def test_the_media_map_upper_cases_the_guid_the_registry_stored(monkeypatch):
+    # Every GUID this machine's registry stores is upper-cased already, so no live
+    # read can tell whether the map normalises them; a registry that stores one in
+    # lower case is the only way to pin it. is_ethernet joins on that assumption,
+    # and a Bluetooth GUID that misses the join fails open as a real card.
+    install_fake_registry(
+        monkeypatch,
+        FakeRegistryKey(
+            children={
+                "0001": FakeRegistryKey(
+                    {"NetCfgInstanceId": BLUETOOTH_GUID.lower(), "*PhysicalMediaType": 10}
+                ),
+                "0002": FakeRegistryKey(
+                    {"NetCfgInstanceId": ETHERNET_GUID, "*PhysicalMediaType": "14"}
+                ),
+                "0003": FakeRegistryKey({"DriverDesc": "a subkey with no medium to report"}),
+            }
+        ),
+    )
+    assert physical_media_types() == {BLUETOOTH_GUID: 10, ETHERNET_GUID: NDIS_MEDIUM_802_3}
 
 
 def test_a_refusal_from_the_ip_stack_costs_the_list_not_the_window(monkeypatch):
