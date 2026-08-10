@@ -29,7 +29,10 @@ BORDER = "#383838"
 
 TEXT = "#ffffff"
 TEXT_SECONDARY = "#c5c5c5"
-TEXT_ON_ACCENT = "#000000"
+
+# Text drawn on the accent is one of these two, whichever the accent can carry.
+# The choice needs contrast_ratio, so TEXT_ON_ACCENT is derived further down.
+_ON_ACCENT_CANDIDATES = ("#000000", TEXT)
 
 # Windows 11 does not use pure red for critical text on dark backgrounds; it is
 # unreadable against #202020. This is the system's own lightened tone.
@@ -106,6 +109,25 @@ def contrast_ratio(foreground: str, background: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
+def text_on_accent(accent: str) -> str:
+    """Black or white for text sitting on *accent*, whichever can be read.
+
+    Windows can derive the accent from the wallpaper, so it moves on its own
+    without anyone touching a setting, and no single foreground survives the
+    move. Black scores 4.64 on the default blue #0078d4 but 1.91 on #680081, a
+    purple this machine drifted to by itself, where white scores 11.02. Ties go
+    to black, which is what Windows 11 puts on a light accent.
+    """
+    return max(_ON_ACCENT_CANDIDATES, key=lambda colour: contrast_ratio(colour, accent))
+
+
+# The answer for the accent as it stood when the module was imported. apply(),
+# menu_options() and listbox_options() each recompute from the accent they read,
+# so a widget always gets the colour that matches the fill it is drawn on; this
+# is the exported shorthand for callers that only need the current answer.
+TEXT_ON_ACCENT = text_on_accent(accent_colour())
+
+
 def _colorref(colour: str) -> int:
     """Hex colour to the 0x00BBGGRR integer DWM expects."""
     red, green, blue = _channels(colour)
@@ -149,6 +171,7 @@ def apply(root) -> None:
     accent = accent_colour()
     accent_hover = _lighten(accent, 0.12)
     accent_pressed = _darken(accent, 0.12)
+    on_accent = text_on_accent(accent)
 
     root.configure(background=WINDOW)
 
@@ -170,11 +193,12 @@ def apply(root) -> None:
     style.configure("TSeparator", background=BORDER)
 
     # Primary action, filled with the accent the way Windows 11 fills its
-    # default button.
+    # default button. The label takes whichever of black and white the accent
+    # of the day can carry.
     style.configure(
         "Accent.TButton",
         background=accent,
-        foreground=TEXT_ON_ACCENT,
+        foreground=on_accent,
         bordercolor=accent,
         focuscolor=accent,
         borderwidth=0,
@@ -357,12 +381,13 @@ def apply(root) -> None:
 
 def menu_options() -> dict[str, object]:
     """Colours for a tk.Menu, which ttk styling never reaches."""
+    accent = accent_colour()
     return {
         "tearoff": 0,
         "background": SURFACE,
         "foreground": TEXT,
-        "activebackground": accent_colour(),
-        "activeforeground": TEXT_ON_ACCENT,
+        "activebackground": accent,
+        "activeforeground": text_on_accent(accent),
         "selectcolor": TEXT,
         "borderwidth": 0,
         "relief": "flat",
@@ -378,7 +403,7 @@ def listbox_options() -> dict[str, object]:
         "background": WINDOW,
         "foreground": TEXT,
         "selectbackground": accent,
-        "selectforeground": TEXT_ON_ACCENT,
+        "selectforeground": text_on_accent(accent),
         "borderwidth": 0,
         "highlightthickness": 1,
         "highlightbackground": BORDER,
