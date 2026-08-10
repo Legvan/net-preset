@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Agent working directories. These hold specifications, implementation plans and
+# task reports: a record of how the program was built, not the program itself,
+# and they carry absolute local paths. Excluded from the first commit onwards,
+# because removing them later would mean rewriting history.
+.superpowers/
+docs/
+
+# Local configuration and anything secret
+.env
+.env.*
+*.local
+secrets.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
