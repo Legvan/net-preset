@@ -1,5 +1,4 @@
 import sys
-import tkinter as tk
 
 import pytest
 
@@ -8,16 +7,7 @@ from net_preset.profile import DEFAULT_MASK, Profile
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="needs a Windows display")
 
-
-@pytest.fixture
-def root():
-    try:
-        window = tk.Tk()
-    except tk.TclError:
-        pytest.skip("no display available")
-    window.withdraw()
-    yield window
-    window.destroy()
+# The `root` fixture lives in conftest.py, shared with the theme tests.
 
 
 def test_the_fields_are_in_the_agreed_order():

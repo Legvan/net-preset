@@ -1,31 +1,12 @@
 import sys
-import time
-import tkinter as tk
 
 import pytest
 
 from net_preset import theme
 
-
-def _new_root(attempts: int = 5):
-    """A Tk root, retrying past transient failures to read Tcl's own library.
-
-    Every root re-reads init.tcl and tk.tcl from the interpreter's directory,
-    and something on this machine intermittently holds one of those files: it
-    surfaces as TclError("couldn't read ... init.tcl: No error"), or a missing
-    ttk/panedwindow.tcl that is plainly there, in roughly one root in twelve.
-    Handed straight to the guard below that became a silent skip, which once
-    hid a real regression from a mutation run. A machine with no display fails
-    every attempt and still skips, now with the reason attached.
-    """
-    error = None
-    for attempt in range(attempts):
-        try:
-            return tk.Tk()
-        except tk.TclError as failure:
-            error = failure
-            time.sleep(0.05 * (attempt + 1))
-    pytest.skip(f"no display available: {error!r}")
+# The `root` fixture lives in conftest.py, shared with the dialog tests. It
+# hands back a withdrawn root and retries past a local flake that is not a
+# missing display; see the note there.
 
 
 def test_the_accent_colour_is_a_hex_triplet():
@@ -66,17 +47,12 @@ def test_the_listbox_options_carry_the_window_background():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="needs a Windows display")
-def test_applying_the_theme_to_a_real_root_leaves_it_dark():
-    root = _new_root()
-    try:
-        root.withdraw()
-        theme.apply(root)
-        assert root.cget("background") == theme.WINDOW
-        from tkinter import ttk
+def test_applying_the_theme_to_a_real_root_leaves_it_dark(root):
+    theme.apply(root)
+    assert root.cget("background") == theme.WINDOW
+    from tkinter import ttk
 
-        assert ttk.Style(root).theme_use() == "clam"
-    finally:
-        root.destroy()
+    assert ttk.Style(root).theme_use() == "clam"
 
 
 class _FakeKey:
@@ -140,36 +116,26 @@ def test_the_menu_highlight_can_be_read():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="needs a Windows display")
-def test_the_primary_button_label_is_readable_on_whatever_accent_is_set():
+def test_the_primary_button_label_is_readable_on_whatever_accent_is_set(root):
     # The colour the widget is actually given, not the one the module exports.
-    root = _new_root()
-    try:
-        root.withdraw()
-        theme.apply(root)
-        from tkinter import ttk
+    theme.apply(root)
+    from tkinter import ttk
 
-        style = ttk.Style(root)
-        fill = style.lookup("Accent.TButton", "background")
-        label = style.lookup("Accent.TButton", "foreground")
-        assert theme.contrast_ratio(label, fill) >= 4.5
-    finally:
-        root.destroy()
+    style = ttk.Style(root)
+    fill = style.lookup("Accent.TButton", "background")
+    label = style.lookup("Accent.TButton", "foreground")
+    assert theme.contrast_ratio(label, fill) >= 4.5
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="needs a Windows display")
-def test_every_button_shows_a_focus_ring_against_its_own_fill():
+def test_every_button_shows_a_focus_ring_against_its_own_fill(root):
     # 3.0 is the WCAG floor for a control outline rather than for text. A ring
     # painted in the button's own fill scores 1.0 and cannot be seen at all.
-    root = _new_root()
-    try:
-        root.withdraw()
-        theme.apply(root)
-        from tkinter import ttk
+    theme.apply(root)
+    from tkinter import ttk
 
-        style = ttk.Style(root)
-        for name in ("Accent.TButton", "Secondary.TButton", "Danger.TButton"):
-            fill = style.lookup(name, "background")
-            ring = style.lookup(name, "focuscolor")
-            assert theme.contrast_ratio(ring, fill) >= 3.0, name
-    finally:
-        root.destroy()
+    style = ttk.Style(root)
+    for name in ("Accent.TButton", "Secondary.TButton", "Danger.TButton"):
+        fill = style.lookup(name, "background")
+        ring = style.lookup(name, "focuscolor")
+        assert theme.contrast_ratio(ring, fill) >= 3.0, name
