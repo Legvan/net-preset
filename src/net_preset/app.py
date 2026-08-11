@@ -559,10 +559,22 @@ class Application(tk.Tk):
         with no card goes on saying so while *Teraz* names an address and USTAW
         is live, and a window opened with one says nothing at all when it goes.
 
-        Only that one fact is watched, and only while nothing is in flight. Every
-        other line the window shows was put there by something the operator did —
-        an apply's answer, a list that would not save — and speaking over one of
-        those would take away the answer they are in the middle of reading.
+        Only that one fact is watched, and only while nothing is in flight. The
+        line an apply is in the middle of is the one the operator pressed USTAW to
+        read, and it is what the `busy` test protects: the worker can hold the
+        window for the best part of a minute, and speaking over the line in that
+        time would take away the answer before it arrived.
+
+        Nothing else on the line is protected, and this says so rather than what
+        was meant. SAVE_FAILED and NO_ANSWER are both written with `busy` already
+        false, so a card arriving in the seconds after either one replaces it with
+        READY — and losing the note that a profile never reached the disk is the
+        one that costs something. Left as it stands. Protecting them needs a
+        second flag saying who wrote the line last, and that jams the ranking: a
+        card leaving under a protected line would be suppressed, `announced_card`
+        would go stale against it, and the card coming back would then be
+        suppressed too, leaving a window that never says its card has gone. A line
+        that is overwritten and put right by the next event is the better failure.
         """
         present = self.adapter is not None
         if self.busy or present == self.announced_card:

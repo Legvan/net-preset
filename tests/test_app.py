@@ -592,6 +592,27 @@ def test_the_last_card_leaving_says_so(make_app):
 
 
 @windowed
+def test_a_card_arriving_speaks_over_a_note_that_the_list_would_not_save(monkeypatch, make_app):
+    # Documented rather than prevented; see `_reannounce`. Only an apply in flight holds
+    # the line, and SAVE_FAILED is written with `busy` already false, so the ranking
+    # takes it on the next tick that moves a card. Pinned so that the docstring and the
+    # window cannot drift apart, and so the cost is a decision rather than a surprise.
+    from net_preset import app as module
+
+    monkeypatch.setattr(module, "ProfileDialog", fake_dialog(DialogResult("save", ONE)))
+    monkeypatch.setattr(module, "save_profiles", lambda profiles, path=None: False)
+    cards = []
+    window = make_app(cards)
+    window.on_add()
+    assert "zapisać" in window.status.cget("text")
+
+    cards.append(adapter())
+    window.on_tick()
+
+    assert window.status.cget("text") == READY
+
+
+@windowed
 def test_a_card_going_mid_apply_leaves_the_line_the_worker_was_given(make_app):
     # The tick runs all the way through an apply, and the line saying what is
     # being set is what the operator is waiting on. Announcing over it would take
