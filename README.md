@@ -69,19 +69,19 @@ unchanged build script:
 | One build of `net-preset.exe` | **blocked** at process creation (`winerror 4551`) |
 | A later build, same spec, same script | ran, and stopped at the elevation prompt as intended |
 | `pyinstaller.exe`, the unsigned launcher inside the virtual environment | blocked once mid-build, ran fine the next day |
+| `net-preset-setup.exe`, first build | ran, elevated, and installed correctly |
 
 Smart App Control judges each unsigned binary on its own and its verdict is not stable
 across builds. Rebuilding is a re-roll, not a workaround. The sibling project card-wedge
 measured the same instability in the opposite direction — a build that ran, then the same
 artifact blocked after a rebuild — so do not read either result as a rule.
 
-`net-preset-setup.exe` has no row in that table: it is newer than the measurements and has
-not been put in front of Smart App Control here. Do not expect it to be the way round the
-problem, and do not be surprised if it is the worse bet of the two. An unsigned setup
-executable is the shape Smart App Control scrutinises hardest, and card-wedge, on this same
-machine and equally unsigned, had an installer refused while the application beside it was
-admitted. If a machine turns the installer away, reach for the bare executable rather than
-rebuilding — and for the source if it turns that away too.
+The installer's row is one observation, not a pattern, and it is the row least safe to lean
+on. An unsigned setup executable is the shape Smart App Control scrutinises hardest, and
+card-wedge — same machine, equally unsigned — had an installer refused while the application
+beside it was admitted. That one build of `net-preset-setup.exe` was let through says
+nothing about the next one. If a machine turns the installer away, reach for the bare
+executable rather than rebuilding, and for the source if it turns that away too.
 
 **The fix is code signing.** Until then, run from source: `uv run net-preset` goes through
 a signed Python interpreter, which Smart App Control does not treat this way.
