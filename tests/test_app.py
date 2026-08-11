@@ -183,9 +183,29 @@ def apply_and_settle(window, timeout=5.0):
 
     From inside, because that is where a button command runs, and because the
     worker needs the loop running to hand anything back to it.
+
+    A few turns in, not on the first. A worker with nothing to wait for -- the
+    fakes here answer instantly -- can reach its `after(0, ...)` before the loop
+    has settled into servicing events, and a cross-thread `after` that lands then
+    never comes back: the worker blocks in Tcl_ConditionWait for an event nobody
+    runs, `pump` spends its whole timeout, and the answer is simply lost. It cost
+    an existing test a deterministic failure once four more worker tests had
+    shifted the timing around it. Nothing in the shipped window can meet this:
+    its loop has been running since before the operator saw it. Tests that hold
+    the worker on a gate are safe already, the gate being released from inside
+    the loop; this is the path with no gate to do that.
+
+    `pressed` is in the condition because `not window.busy` is true before USTAW
+    has been pressed at all, and waiting would otherwise end before it started.
     """
-    window.after(0, window.on_apply)
-    pump(window, lambda: not window.busy, timeout)
+    pressed = []
+
+    def press():
+        window.on_apply()
+        pressed.append(True)
+
+    window.after(30, press)
+    pump(window, lambda: pressed and not window.busy, timeout)
 
 
 def fake_dialog(answer):
