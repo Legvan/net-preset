@@ -525,6 +525,29 @@ def test_a_card_that_comes_back_does_not_take_the_choice_off_the_one_in_use(make
 
 
 @windowed
+def test_the_last_card_leaving_keeps_its_name_for_when_it_comes_back(tmp_path, make_app):
+    # A dock comes off a laptop and both cards go with it. `chosen` is deliberately left
+    # naming the card that has gone -- `_use_adapter` writes it only when there is one to
+    # write -- and that is what hands the same card back when the dock returns, instead
+    # of whichever one the API happens to list first. The two-card half of that property
+    # is pinned above; clearing it on the way to nothing was not, and survived the suite.
+    save_adapter_choice("{BBBB}", tmp_path / "settings.json")
+    cards = [adapter(), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards)
+    assert window.adapter.guid == "{BBBB}"
+
+    cards.clear()
+    window.on_tick()
+    assert window.adapter is None
+    assert window.chosen.get() == "{BBBB}"
+
+    cards.extend([adapter(), adapter("{BBBB}", "Ethernet 2")])
+    window.on_tick()
+    assert window.adapter.guid == "{BBBB}"
+    assert window.adapter_picker.cget("text") == "Ethernet 2   ▾"
+
+
+@windowed
 def test_a_card_arriving_replaces_the_line_that_said_there_was_none(make_app):
     # The second contradiction the startup-only announcement produced: the status
     # line still refusing the card that Teraz is already reading an address off.
