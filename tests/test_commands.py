@@ -3,7 +3,8 @@ from pathlib import Path, PureWindowsPath
 
 import pytest
 
-from net_preset.commands import NETSH_PATH, commands_for, dhcp_commands, static_commands
+from net_preset import commands
+from net_preset.commands import commands_for, dhcp_commands, netsh_path, static_commands
 from net_preset.profile import Profile
 from net_preset.system import system_directory
 
@@ -16,6 +17,9 @@ FULL = Profile(
     dns="10.0.0.1",
     dns_alt="8.8.8.8",
 )
+
+NETSH_PATH = netsh_path()
+PLANTED = r"C:\Users\operator\Downloads"
 
 
 def test_netsh_is_named_by_its_full_path_and_never_by_name():
@@ -33,6 +37,37 @@ def test_netsh_is_named_by_its_full_path_and_never_by_name():
 
 def test_netsh_is_taken_from_the_system_directory():
     assert PureWindowsPath(NETSH_PATH).parent == PureWindowsPath(system_directory())
+
+
+def test_the_path_is_derived_from_the_resolver_and_not_from_somewhere_that_agrees(monkeypatch):
+    # The assertion above cannot fail on a clean machine even if the path came from
+    # %SystemRoot%, because the API and the variable answer the same string there.
+    # Substituting the resolver is the only thing that tells the two apart, and it
+    # has to reach the built commands and not just the helper.
+    monkeypatch.setattr(commands, "system_directory", lambda: r"X:\elsewhere")
+    assert netsh_path() == r"X:\elsewhere\netsh.exe"
+    assert static_commands("Ethernet", FULL)[0][0] == r"X:\elsewhere\netsh.exe"
+    assert dhcp_commands("Ethernet")[0][0] == r"X:\elsewhere\netsh.exe"
+
+
+def test_the_environment_cannot_move_netsh(monkeypatch):
+    # The same planting the resolver's own tests do, one level up: whatever the
+    # environment claims, the path handed to subprocess is the API's answer.
+    for name in ("SystemRoot", "SYSTEMROOT", "windir", "WINDIR"):
+        monkeypatch.setenv(name, PLANTED)
+    assert netsh_path() == str(PureWindowsPath(system_directory()) / "netsh.exe")
+    assert PLANTED not in static_commands("Ethernet", MINIMAL)[0][0]
+
+
+def test_a_system_directory_with_no_netsh_in_it_is_still_named_in_full(monkeypatch):
+    # There is no existence check and no fallback to the bare name, deliberately:
+    # the bare name is the hole this closes, and falling back to it would restore
+    # the search at the moment an attacker would most want it. A netsh that cannot
+    # be started is an OSError run_netsh already reports, naming the path it tried.
+    monkeypatch.setattr(commands, "system_directory", lambda: r"X:\no-such-directory")
+    resolved = netsh_path()
+    assert resolved == r"X:\no-such-directory\netsh.exe"
+    assert not Path(resolved).exists()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="looks for the real netsh")
