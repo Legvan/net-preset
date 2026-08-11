@@ -566,10 +566,12 @@ class Application(tk.Tk):
         time would take away the answer before it arrived.
 
         Nothing else on the line is protected, and this says so rather than what
-        was meant. SAVE_FAILED and NO_ANSWER are both written with `busy` already
-        false, so a card arriving in the seconds after either one replaces it with
-        READY — and losing the note that a profile never reached the disk is the
-        one that costs something. Left as it stands. Protecting them needs a
+        was meant. SAVE_FAILED is written with `busy` already false, so a card
+        arriving in the seconds afterwards replaces it with READY, and the note
+        that a profile never reached the disk goes with it. NO_ANSWER is written
+        the same way and costs less: an apply cannot start without a card, so the
+        line that realistically lands on it is NO_ADAPTER — higher-ranked, and
+        true. Left as it stands. Protecting them needs a
         second flag saying who wrote the line last, and that jams the ranking: a
         card leaving under a protected line would be suppressed, `announced_card`
         would go stale against it, and the card coming back would then be
