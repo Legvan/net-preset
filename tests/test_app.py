@@ -639,6 +639,49 @@ def test_the_picker_is_out_of_reach_while_an_apply_is_in_flight(make_app):
 
 
 @windowed
+def test_the_list_is_out_of_reach_while_an_apply_is_in_flight(make_app):
+    gate = threading.Event()
+    window = make_app([adapter()], applier=FakeApply(gate=gate))
+    window.profiles = [ONE, TWO]
+    window.refresh_list(select=1)
+    seen = []
+    window.after(0, window.on_apply)
+    window.after(10, lambda: seen.append(str(window.listbox.cget("state"))))
+    window.after(20, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+    assert seen == ["disabled"]
+    assert str(window.listbox.cget("state")) == "normal"
+
+
+@windowed
+def test_the_highlight_cannot_move_out_from_under_an_answer_in_flight(make_app):
+    # ROGER is what was handed to the worker, so ROGER's address is what the
+    # answer will name. A highlight that had reached BIURO by then would have the
+    # operator reading a success line against the wrong row -- and walking away
+    # believing the wrong profile is on the card.
+    gate = threading.Event()
+    window = make_app([adapter()], applier=FakeApply(gate=gate))
+    window.profiles = [ONE, TWO]
+    window.refresh_list(select=1)
+    moved = []
+    window.after(0, window.on_apply)
+    window.after(10, lambda: window.listbox.selection_set(2))
+    window.after(15, lambda: moved.append(window.listbox.curselection()))
+    window.after(20, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+    assert moved == [(1,)]
+    assert window.listbox.curselection() == (1,)
+
+
+@windowed
 def test_choosing_an_adapter_remembers_it(tmp_path, make_app):
     window = make_app([adapter(), adapter("{BBBB}", "Ethernet 2")])
     window.adapter_menu.invoke(1)
