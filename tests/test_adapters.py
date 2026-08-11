@@ -154,6 +154,29 @@ def test_a_repeated_dns_server_is_reported_once():
     assert anchors  # the chain has to stay referenced until the read above is done
 
 
+def test_the_link_state_is_read_from_the_operational_status():
+    # The literals are the Win32 header's, not the module's constant: asserting
+    # against IF_OPER_STATUS_UP would move with any mutation of it and pin nothing.
+    # IfOperStatusUp is 1 and IfOperStatusDown is 2.
+    raw = IP_ADAPTER_ADDRESSES()
+    raw.OperStatus = 1
+    assert _adapter_state(raw).connected is True
+    raw.OperStatus = 2
+    assert _adapter_state(raw).connected is False
+
+
+def test_the_dhcp_flag_is_the_one_bit_the_flags_word_reserves_for_it():
+    # IP_ADAPTER_DHCP_ENABLED is 0x0004, between the DDNS bit at 0x0001 and the
+    # receive-only bit at 0x0008. The whole _dhcp_mismatch branch rests on this and
+    # on the status above -- including "DHCP włączone — czekam na kabel", where a
+    # wrong bit turns a card that never took the flag into a green line.
+    raw = IP_ADAPTER_ADDRESSES()
+    raw.Flags = 0x0004
+    assert _adapter_state(raw).dhcp is True
+    raw.Flags = 0xFFFFFFFB  # every other flag set, and only that one clear
+    assert _adapter_state(raw).dhcp is False
+
+
 def test_an_adapter_naming_nothing_reads_as_empty_text():
     # The name and description fields are pointers, and a null one must not
     # reach the window as None.
