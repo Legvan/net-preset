@@ -223,13 +223,21 @@ try {
     # Apps & features and in its own uninstall entry for the rest of its life.
     # Inno stamps AppVersion into the compiled file's version resource, so the
     # finished artifact can be asked what it thinks it is.
-    $declared = Select-String -Path (Join-Path $Repo 'pyproject.toml') `
-        -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    # Anchored to the [project] table rather than taking the first version = "..."
+    # in the file. [project] comes first today and is the only table carrying that
+    # key, so the simpler read would work -- right up until a [tool.something]
+    # table with a version of its own is added above it, at which point the check
+    # would compare the installer against the wrong number and pass.
+    $declared = $null
+    $inProject = $false
+    foreach ($line in Get-Content (Join-Path $Repo 'pyproject.toml')) {
+        if ($line -match '^\s*\[') { $inProject = $line -match '^\s*\[project\]\s*$'; continue }
+        if ($inProject -and $line -match '^\s*version\s*=\s*"([^"]+)"') { $declared = $Matches[1]; break }
+    }
     if (-not $declared) {
-        Write-Fail 'pyproject.toml does not declare a version.'
+        Write-Fail 'pyproject.toml has no version in its [project] table.'
         exit 1
     }
-    $declared = $declared.Matches[0].Groups[1].Value
     $stamped = (Get-Item $setup).VersionInfo.ProductVersion
     if ($stamped) { $stamped = $stamped.Trim() }
     if ($stamped -ne $declared) {
