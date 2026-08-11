@@ -203,6 +203,17 @@ Three things worth knowing:
 `profiles.json` holds the list; `settings.json` remembers which card you picked, by the
 adapter's GUID rather than its name, so renaming the connection does not lose the choice.
 
+**That path is resolved while the program is elevated,** which is worth saying plainly. On
+an ordinary machine with one account it makes no difference: the account that answers the
+UAC prompt is the account already signed in, and `%LOCALAPPDATA%` means the same folder
+either way. Where it does make a difference is a standard user whose UAC prompt is approved
+with a *different* administrator account — over the shoulder, or with the technician's own
+credentials. The program then runs as that administrator and reads and writes that
+administrator's `%LOCALAPPDATA%`, so profiles saved in one context are invisible in the
+other and the machine appears to hold two separate lists. This is a property of the program,
+not of how it was put on the machine: the installer does not cause it and the bare
+executable does not avoid it.
+
 Both are written to a temporary file and moved into place, so an interrupted write cannot
 leave a half-file behind. A missing, unreadable or corrupt file costs the profiles, never
 the program: it opens with an empty list and says what happened. A single malformed entry
