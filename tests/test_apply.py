@@ -140,6 +140,31 @@ def test_code_one_without_the_already_exists_phrase_is_a_failure():
     assert len(runner.commands) == 1
 
 
+def test_a_refusal_after_the_address_says_the_address_has_already_moved():
+    # Restoring DHCP with the address command through and set dnsservers refused. The
+    # card is on a leased address while still pointing at the site's static servers,
+    # and a message naming only the refusal would leave that half unsaid.
+    runner = Runner([CommandResult(0, ""), CommandResult(1, "Element nie zostal znaleziony.")])
+    outcome = apply(None, runner, Reader([adapter(dhcp=True)]))
+    assert outcome.ok is False
+    assert "Element nie zostal znaleziony." in outcome.message
+    assert outcome.message.startswith("Adres już zmieniony")
+
+
+def test_a_refusal_on_the_first_command_does_not_claim_the_address_moved():
+    runner = Runner([CommandResult(1, "Odmowa dostępu.")])
+    outcome = apply(PROFILE, runner, Reader([adapter()]))
+    assert outcome.message.startswith("Nie udało się wykonać polecenia")
+    assert "zmieniony" not in outcome.message
+
+
+def test_a_refusal_with_nothing_to_say_still_reports_where_it_fell():
+    runner = Runner([CommandResult(0, ""), CommandResult(5, "   ")])
+    outcome = apply(PROFILE, runner, Reader([adapter()]))
+    assert outcome.message.startswith("Adres już zmieniony")
+    assert "kodem 5" in outcome.message
+
+
 def test_dhcp_runs_the_two_restoring_commands():
     runner = Runner()
     apply(None, runner, Reader([adapter(dhcp=True, addresses=(("192.168.1.50", 24),))]))

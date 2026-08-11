@@ -40,6 +40,11 @@ _UNREADABLE = "Nie udało się odczytać stanu karty"
 # What an empty list of gateways or servers is called when the status line names one.
 _NOTHING = "brak"
 
+# A command netsh would not carry out, and the same thing once the address has gone
+# through: the first command of every run is the one that moves the address.
+_REFUSED = "Nie udało się wykonać polecenia"
+_REFUSED_LATE = "Adres już zmieniony, ale nie udało się wykonać polecenia"
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -188,11 +193,15 @@ def apply_profile(
     no point setting DNS servers on an address that was rejected. What follows is a
     read-back, because netsh reporting success is not the same as the adapter having
     changed.
+
+    Where the refusal fell is carried into the message. The address is always the first
+    command, so a refusal anywhere after it means the card has already moved — and a
+    message that named only the refusal would leave the operator thinking nothing had.
     """
-    for command in commands_for(adapter.name, profile):
+    for position, command in enumerate(commands_for(adapter.name, profile)):
         result = runner(command)
         if not _succeeded(result):
-            return _refusal(result)
+            return _refusal(result, position)
 
     return _report(_poll(adapter.guid, profile, reader, sleep, attempts), profile)
 
@@ -236,16 +245,25 @@ def _succeeded(result: CommandResult) -> bool:
     return any(phrase in said for phrase in _ALREADY_EXISTS)
 
 
-def _refusal(result: CommandResult) -> Outcome:
+def _refusal(result: CommandResult, position: int) -> Outcome:
     """The verdict on a command netsh would not carry out, in netsh's own words.
 
     The output is folded onto one line: it lands in a status line, and netsh answers
     some refusals with several lines of them.
+
+    *position* is where the refused command stood in the run. Anything past the first
+    means the address command has already been carried out, so the card is not where it
+    was: restoring DHCP with `set dnsservers` refused leaves it on a leased address while
+    still pointing at the site's static servers, and in an office that reads as no
+    internet on a perfectly good IP. The operator is told the address moved, because
+    nothing else in the window will tell them the half that did work.
     """
     said = " ".join(result.output.split())
     if not said:
         said = f"netsh zakończył się kodem {result.returncode}"
-    return Outcome(False, f"Nie udało się wykonać polecenia: {said}")
+    if position:
+        return Outcome(False, f"{_REFUSED_LATE}: {said}")
+    return Outcome(False, f"{_REFUSED}: {said}")
 
 
 def _poll(
