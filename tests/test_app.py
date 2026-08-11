@@ -16,6 +16,7 @@ from net_preset.app import (
     NO_CARD,
     NO_LEASE,
     NOT_ELEVATED,
+    READY,
     STATUS_LINES,
     Application,
     fit,
@@ -413,15 +414,173 @@ def test_the_row_that_is_showing_is_the_row_that_is_active(make_app):
 def test_one_adapter_needs_no_picker(make_app):
     # The brief's test above is answered by the fixture's empty adapter list, so
     # it cannot tell "fewer than two" from "none at all". This one can.
+    #
+    # The picker is built either way and hidden by the grid, so what is asked
+    # here is whether it is laid out -- grid_info() is empty for a widget that
+    # grid_remove took away. winfo_ismapped cannot answer it: this window is
+    # withdrawn, so nothing in it is mapped and the question passes vacuously.
     window = make_app([adapter()])
-    assert window.adapter_picker is None
+    assert window.adapter_row.grid_info() == {}
 
 
 @windowed
 def test_two_adapters_bring_out_the_picker(make_app):
     window = make_app([adapter(), adapter("{BBBB}", "Ethernet 2")])
-    assert window.adapter_picker is not None
+    assert window.adapter_row.grid_info() != {}
     assert window.adapter_picker.cget("text") == "Ethernet   ▾"
+
+
+@windowed
+def test_a_card_arriving_brings_the_picker_out_with_it(make_app):
+    # The window is open from the last site and a USB adapter goes in. Without
+    # this the picker never appears, USTAW keeps pointing at the built-in card,
+    # and the window reports success on a card the controller is not on.
+    cards = [adapter()]
+    window = make_app(cards)
+    assert window.adapter_row.grid_info() == {}
+
+    cards.append(adapter("{BBBB}", "Ethernet 2"))
+    window.on_tick()
+
+    assert window.adapter_row.grid_info() != {}
+    assert window.adapter_separator.grid_info() != {}
+    # And it names the card the click would go to. What the menu behind it holds
+    # is settled when it opens, by the postcommand, not here.
+    assert window.adapter_picker.cget("text") == "Ethernet   ▾"
+
+
+@windowed
+def test_the_last_of_two_cards_leaving_puts_the_picker_away(make_app):
+    cards = [adapter(), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards)
+    assert window.adapter_row.grid_info() != {}
+
+    del cards[1]
+    window.on_tick()
+
+    assert window.adapter_row.grid_info() == {}
+    assert window.adapter_separator.grid_info() == {}
+
+
+@windowed
+def test_the_card_in_use_disappearing_takes_the_choice_with_it(tmp_path, make_app):
+    # The case to get right. The picker, the menu's tick and the card USTAW acts
+    # on have to name the same thing afterwards, and the choice on file has to
+    # survive: a cable out for a minute must not be what forgets it.
+    save_adapter_choice("{BBBB}", tmp_path / "settings.json")
+    cards = [adapter(), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards)
+    assert window.adapter.guid == "{BBBB}"
+
+    del cards[1]
+    window.on_tick()
+
+    assert window.adapter.guid == "{AAAA}"
+    assert window.chosen.get() == "{AAAA}"
+    assert window.adapter_picker.cget("text") == "Ethernet   ▾"
+    assert "{BBBB}" in (tmp_path / "settings.json").read_text(encoding="utf-8")
+
+
+@windowed
+def test_a_card_that_comes_back_does_not_take_the_choice_off_the_one_in_use(make_app):
+    # USTAW's target moves when the operator picks another card, and when the one
+    # in use goes away. Never on its own: a card reappearing between choosing a
+    # profile and clicking USTAW would send the click somewhere nobody asked for.
+    cards = [adapter(), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards)
+    window.adapter_menu.invoke(1)
+    assert window.adapter.guid == "{BBBB}"
+
+    del cards[1]
+    window.on_tick()
+    assert window.adapter.guid == "{AAAA}"
+
+    cards.append(adapter("{BBBB}", "Ethernet 2"))
+    window.on_tick()
+    assert window.adapter.guid == "{AAAA}"
+    assert window.adapter_picker.cget("text") == "Ethernet   ▾"
+
+
+@windowed
+def test_a_card_arriving_replaces_the_line_that_said_there_was_none(make_app):
+    # The second contradiction the startup-only announcement produced: the status
+    # line still refusing the card that Teraz is already reading an address off.
+    cards = []
+    window = make_app(cards)
+    assert window.status.cget("text") == NO_ADAPTER
+
+    cards.append(adapter())
+    window.on_tick()
+
+    assert window.status.cget("text") == READY
+    assert str(window.status.cget("foreground")) == TEXT_SECONDARY
+    assert str(window.apply_button.cget("state")) == "normal"
+
+
+@windowed
+def test_a_card_arriving_says_whatever_it_was_outranking(tmp_path, make_app):
+    # The complaint about the stored file lost to there being no card at all.
+    # Once there is one, the complaint is what is left to say.
+    (tmp_path / "profiles.json").write_text(BAD_FILE)
+    cards = []
+    window = make_app(cards)
+    assert window.status.cget("text") == NO_ADAPTER
+
+    cards.append(adapter())
+    window.on_tick()
+
+    assert "Pominięto" in window.status.cget("text")
+
+
+@windowed
+def test_the_last_card_leaving_says_so(make_app):
+    cards = [adapter()]
+    window = make_app(cards)
+    assert window.status.cget("text") == READY
+
+    cards.clear()
+    window.on_tick()
+
+    assert window.status.cget("text") == NO_ADAPTER
+    assert str(window.status.cget("foreground")) == DANGER
+
+
+@windowed
+def test_a_card_going_mid_apply_leaves_the_line_the_worker_was_given(make_app):
+    # The tick runs all the way through an apply, and the line saying what is
+    # being set is what the operator is waiting on. Announcing over it would take
+    # it away before the answer arrived to replace it.
+    gate = threading.Event()
+    cards = [adapter()]
+    window = make_app(cards, applier=FakeApply(gate=gate))
+    try:
+        window.on_apply()
+        cards.clear()
+        window.on_tick()
+        assert window.status.cget("text") == f"Ustawiam {DHCP_LABEL}…"
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+
+
+@windowed
+def test_the_answer_outlives_a_card_that_went_while_it_was_being_fetched(make_app):
+    # Same collision, resolved the other way round once the worker has answered:
+    # the answer is the last thing written, so the re-announcement cannot land on
+    # top of it.
+    gate = threading.Event()
+    cards = [adapter()]
+    window = make_app(cards, applier=FakeApply(Outcome(False, "Karta ma 10.0.0.5 /24"), gate))
+    window.after(0, window.on_apply)
+    window.after(20, cards.clear)
+    window.after(30, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+    assert window.status.cget("text") == "Karta ma 10.0.0.5 /24"
+    assert window.current.cget("text") == NO_CARD
 
 
 @windowed

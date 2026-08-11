@@ -204,18 +204,19 @@ class Application(tk.Tk):
         # built under the native theme would keep it.
         theme.apply(self)
 
-        self.profiles, complaint = load_profiles(profiles_path())
+        self.profiles, self.complaint = load_profiles(profiles_path())
         self.adapters = ethernet_adapters()
         self.chosen = tk.StringVar(self, value=load_adapter_choice(settings_path()) or "")
-        self.adapter = self._resolve_adapter()
-        if self.adapter is not None and not self.chosen.get():
-            self.chosen.set(self.adapter.guid)
+        self.adapter: AdapterState | None = None
+        self._use_adapter()
         # Asked once: a process cannot gain an administrator token while it runs,
         # and this is a ctypes call into shell32.
         self.elevated = is_elevated()
 
-        self.adapter_picker: ttk.Menubutton | None = None
-        self.adapter_menu: tk.Menu | None = None
+        # Whether the opening line was said with a card present. The set of cards
+        # moves while the window is open — a USB adapter goes into a dock, a dock
+        # comes off a laptop — and that line has to be said again when it does.
+        self.announced_card = self.adapter is not None
         # An apply in flight, the thread running it, the token that tells its
         # answer from an abandoned one, and the watchdog that gives the buttons
         # back if it never answers at all.
@@ -229,7 +230,7 @@ class Application(tk.Tk):
         self._build()
         self.refresh_list()
         self._show_state()
-        self._announce(complaint)
+        self._announce()
         # The list, not the first button: the operator arrives at a window whose
         # arrow keys already move through the profiles.
         self.listbox.focus_set()
@@ -273,10 +274,17 @@ class Application(tk.Tk):
         This is the whole point of the *Teraz* line: the effect of USTAW shows up
         here without the operator opening anything, and so does a cable pulled out
         of the card while the window sits there.
+
+        The whole set is re-read, not one card's state, so everything the window
+        says about which card it is using settles in one place: which card that
+        is, whether there is a choice to show, and the opening line, which ranks
+        a missing card above everything else it could be saying.
         """
         self.adapters = ethernet_adapters()
-        self.adapter = self._resolve_adapter()
+        self._use_adapter()
+        self._sync_adapter_row()
         self._show_state()
+        self._reannounce()
 
     def on_selection_changed(self, _event: tk.Event | None = None) -> None:
         """Decide what the three buttons may do, which is a question of one state.
@@ -297,8 +305,7 @@ class Application(tk.Tk):
         self.add_button.configure(state=_state(not self.busy))
         self.edit_button.configure(state=_state(editable and not self.busy))
         self.apply_button.configure(state=_state(appliable and not self.busy))
-        if self.adapter_picker is not None:
-            self.adapter_picker.configure(state=_state(not self.busy))
+        self.adapter_picker.configure(state=_state(not self.busy))
 
     def on_adapter_chosen(self) -> None:
         """Switch to the adapter the operator picked and remember it for next time."""
@@ -415,8 +422,12 @@ class Application(tk.Tk):
             return
         self._cancel_watchdog()
         self.busy = False
-        self._set_status(outcome.message, error=not outcome.ok)
+        # The card first and the answer after it. Refreshing can put the opening
+        # line back up when the set of cards moved while the worker was out, and
+        # the answer is the thing USTAW was pressed to read: it goes on last so
+        # that nothing else can land on top of it.
         self.refresh_current()
+        self._set_status(outcome.message, error=not outcome.ok)
         self.on_selection_changed()
 
     def on_no_answer(self, token: int) -> None:
@@ -487,6 +498,24 @@ class Application(tk.Tk):
                 return candidate
         return self.adapters[0] if self.adapters else None
 
+    def _use_adapter(self) -> None:
+        """Point the window at the card it should be using, and say which that is.
+
+        `chosen` is what the picker's radio buttons read and what the resolution
+        above matches on. Leaving it naming a card that has gone would tick
+        nothing in the menu, and would hand the card back the instant it
+        returned — moving USTAW's target with nobody asking, between the moment a
+        profile is chosen and the moment it is clicked. So the card in use
+        changes on two events and no others: the operator picking another one,
+        and the one in use disappearing.
+
+        The choice on file is not touched here. That one is what the operator
+        picked, and a cable out for a minute must not be what forgets it.
+        """
+        self.adapter = self._resolve_adapter()
+        if self.adapter is not None:
+            self.chosen.set(self.adapter.guid)
+
     def _store(self) -> None:
         """Write the list out, and say so when it did not get there.
 
@@ -496,16 +525,35 @@ class Application(tk.Tk):
         if not save_profiles(self.profiles, profiles_path()):
             self._set_status(SAVE_FAILED, error=True)
 
-    def _announce(self, complaint: str | None) -> None:
+    def _announce(self) -> None:
         """The opening status line: the most blocking thing first."""
         if self.adapter is None:
             self._set_status(NO_ADAPTER, error=True)
         elif not self.elevated:
             self._set_status(NOT_ELEVATED, error=True)
-        elif complaint is not None:
-            self._set_status(complaint, error=True)
+        elif self.complaint is not None:
+            self._set_status(self.complaint, error=True)
         else:
             self._set_status(READY)
+
+    def _reannounce(self) -> None:
+        """Say that line again when a card has arrived, or the last one has left.
+
+        It is ranked by what stops the window working, and a card appearing or
+        disappearing moves the top of that ranking. Without this, a window opened
+        with no card goes on saying so while *Teraz* names an address and USTAW
+        is live, and a window opened with one says nothing at all when it goes.
+
+        Only that one fact is watched, and only while nothing is in flight. Every
+        other line the window shows was put there by something the operator did —
+        an apply's answer, a list that would not save — and speaking over one of
+        those would take away the answer they are in the middle of reading.
+        """
+        present = self.adapter is not None
+        if self.busy or present == self.announced_card:
+            return
+        self.announced_card = present
+        self._announce()
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         """Put *text* on the status line, in the tone that says how to take it."""
@@ -516,13 +564,12 @@ class Application(tk.Tk):
 
     def _show_state(self) -> None:
         """Show the adapter in use and what it is carrying."""
-        if self.adapter_picker is not None:
-            name = self.adapter.name if self.adapter is not None else "—"
-            # The chevron is part of the label. Dropdown.TMenubutton has no arrow
-            # element of its own: clam's combobox keeps a light grey fill behind
-            # its arrow that no styling reaches, so the theme dropped the element
-            # rather than the colour.
-            self.adapter_picker.configure(text=f"{name}   ▾")
+        name = self.adapter.name if self.adapter is not None else "—"
+        # The chevron is part of the label. Dropdown.TMenubutton has no arrow
+        # element of its own: clam's combobox keeps a light grey fill behind its
+        # arrow that no styling reaches, so the theme dropped the element rather
+        # than the colour.
+        self.adapter_picker.configure(text=f"{name}   ▾")
         self.current.configure(text=state_text(self.adapter))
 
     # -- building it ---------------------------------------------------------------
@@ -535,10 +582,7 @@ class Application(tk.Tk):
         # move the *Teraz* value around.
         frame.columnconfigure(0, weight=1, minsize=CONTENT_WIDTH)
 
-        if self._build_adapter_row(frame, row=0):
-            # Only under something. A rule at the top of a window with nothing
-            # above it separates one thing from the title bar.
-            ttk.Separator(frame).grid(row=1, column=0, sticky="ew", pady=(14, 0))
+        self._build_adapter_row(frame, row=0, separator_row=1)
         self._build_list(frame, row=2)
         self._build_buttons(frame, row=3)
         ttk.Separator(frame).grid(row=4, column=0, sticky="ew", pady=(14, 10))
@@ -562,22 +606,25 @@ class Application(tk.Tk):
         frame.rowconfigure(6, minsize=STATUS_GAP + self.status.winfo_reqheight())
         self.status.configure(text="")
 
-    def _build_adapter_row(self, frame: ttk.Frame, *, row: int) -> bool:
-        """The adapter picker, built only when there is a choice to make.
+    def _build_adapter_row(self, frame: ttk.Frame, *, row: int, separator_row: int) -> None:
+        """The adapter picker and the rule under it, built once and shown as needed.
 
-        One Ethernet card is the normal machine, and a dropdown with one entry is
-        a control that answers a question nobody asked. With none, there is
-        nothing to put in it and the status line says so instead.
+        Built whether or not there is anything to choose between, and taken out of
+        sight by the grid rather than by not existing. A card plugged in after the
+        window opened has to bring the picker out with it — a window that goes on
+        applying profiles to whichever card it found at startup, and never names
+        which one that is, is the failure this shape exists to prevent — and
+        building it once means nothing is created or destroyed under a posted
+        menu, and the picker's disabled-while-applying state has a single owner in
+        `on_selection_changed` instead of being re-established by whatever built
+        the widget last.
         """
-        if len(self.adapters) < 2:
-            return False
-
-        picker_row = ttk.Frame(frame)
-        picker_row.grid(row=row, column=0, sticky="ew")
-        ttk.Label(picker_row, text="Karta", style="Secondary.TLabel").pack(side="left")
+        self.adapter_row = ttk.Frame(frame)
+        self.adapter_row.grid(row=row, column=0, sticky="ew")
+        ttk.Label(self.adapter_row, text="Karta", style="Secondary.TLabel").pack(side="left")
 
         self.adapter_picker = ttk.Menubutton(
-            picker_row, style="Dropdown.TMenubutton", direction="below"
+            self.adapter_row, style="Dropdown.TMenubutton", direction="below"
         )
         self.adapter_menu = tk.Menu(self.adapter_picker, **theme.menu_options())
         # Filled again every time it opens, so an adapter that arrived or left
@@ -586,11 +633,34 @@ class Application(tk.Tk):
         self.adapter_picker["menu"] = self.adapter_menu
         self.adapter_picker.pack(side="left", padx=(12, 0))
         self._fill_adapter_menu()
-        return True
+
+        # Only under something. A rule at the top of a window with nothing above
+        # it separates one thing from the title bar.
+        self.adapter_separator = ttk.Separator(frame)
+        self.adapter_separator.grid(row=separator_row, column=0, sticky="ew", pady=(14, 0))
+        self._sync_adapter_row()
+
+    def _sync_adapter_row(self) -> None:
+        """Show the picker exactly while there is a choice to make.
+
+        One Ethernet card is the normal machine, and a dropdown with one entry is
+        a control that answers a question nobody asked. With none there is nothing
+        to put in it, and the status line says so instead.
+
+        grid_remove is what hides them, because it keeps the grid options it was
+        given: showing the row again puts it back where it was rather than
+        wherever a second set of options happened to say.
+        """
+        wanted = len(self.adapters) > 1
+        if wanted == bool(self.adapter_row.grid_info()):
+            return
+        for widget in (self.adapter_row, self.adapter_separator):
+            if wanted:
+                widget.grid()
+            else:
+                widget.grid_remove()
 
     def _fill_adapter_menu(self) -> None:
-        if self.adapter_menu is None:
-            return
         self.adapter_menu.delete(0, tk.END)
         for candidate in self.adapters:
             self.adapter_menu.add_radiobutton(
