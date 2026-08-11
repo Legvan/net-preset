@@ -1,3 +1,4 @@
+import contextlib
 import sys
 import threading
 import time
@@ -245,7 +246,9 @@ def make_app(tmp_path, monkeypatch):
 
     yield build
     for window in built:
-        window.destroy()
+        # A test may close its own window; a second destroy is a TclError.
+        with contextlib.suppress(tk.TclError):
+            window.destroy()
 
 
 def test_the_current_line_names_the_address():
@@ -901,6 +904,32 @@ def test_a_worker_that_never_answers_gives_the_buttons_back(make_app):
     finally:
         gate.set()
         window.worker.join(timeout=5)
+
+
+@windowed
+def test_a_window_closed_mid_apply_does_not_take_the_worker_down_with_it(make_app, monkeypatch):
+    """The suppress at the end of _work, which nothing else asserts anything about.
+
+    An operator who closes the window while netsh is still running leaves the worker
+    holding an answer for an interpreter that no longer exists. Its last act is
+    `after(0, ...)` against that interpreter, and Tkinter answers with `RuntimeError:
+    main thread is not in main loop` -- not the TclError the name of the failure would
+    suggest, which is why the suppress names both. Without it the worker dies through
+    threading.excepthook and a traceback lands on stderr from a window that is gone.
+    """
+    escaped = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: escaped.append(args))
+    gate = threading.Event()
+    window = make_app([adapter()], applier=FakeApply(gate=gate))
+    window.on_apply()
+    worker = window.worker
+
+    window.destroy()
+    gate.set()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert escaped == [], [entry.exc_value for entry in escaped]
 
 
 @windowed

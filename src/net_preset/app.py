@@ -412,6 +412,13 @@ class Application(tk.Tk):
             outcome = Outcome(False, f"{APPLY_FAILED}: {error}")
         # A window torn down while this ran has nothing left to be told, and a
         # worker thread has nobody to report that to either.
+        #
+        # The one measured here is RuntimeError, not TclError: a cross-thread
+        # `after` on a root whose interpreter has gone gets "main thread is not
+        # in main loop", and it is what the test pins. TclError stays named
+        # beside it because it is what the same call raises from the UI thread,
+        # and an exception escaping this thread costs a traceback on stderr from
+        # a window the operator has already closed.
         with contextlib.suppress(RuntimeError, tk.TclError):
             self.after(0, self.on_applied, token, outcome)
 
