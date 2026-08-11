@@ -212,6 +212,133 @@ def test_matches_request_for_dhcp_wants_the_flag_and_a_real_lease():
     assert matches_request(adapter(dhcp=True, addresses=(("169.254.1.1", 16),)), None) is False
 
 
+# -- the two thirds of the request the read-back used to ignore ------------------
+#
+# netsh returns 0 on a syntax error, so the read-back is the only witness there is.
+# An apply that set the address and did nothing about the servers leaves the card on
+# the right subnet with the last site's DNS: a working IP with no name resolution.
+
+ROUTED = Profile(
+    name="ROGER",
+    address="192.168.11.2",
+    mask="255.255.255.0",
+    gateway="192.168.11.1",
+    dns="192.168.11.1",
+    dns_alt="8.8.8.8",
+)
+CARRIED = {"gateways": ("192.168.11.1",), "dns": ("192.168.11.1", "8.8.8.8")}
+
+
+def test_matches_request_wants_everything_the_profile_named():
+    assert matches_request(adapter(**CARRIED), ROUTED) is True
+
+
+def test_a_gateway_the_profile_named_has_to_be_there():
+    assert matches_request(adapter(**CARRIED | {"gateways": ()}), ROUTED) is False
+    assert matches_request(adapter(**CARRIED | {"gateways": ("10.0.0.1",)}), ROUTED) is False
+
+
+def test_a_second_gateway_alongside_the_one_asked_for_does_not_spoil_the_match():
+    # A card may list more than one default route, and only the one asked for is ours.
+    kept = CARRIED | {"gateways": ("192.168.11.1", "192.168.11.254")}
+    assert matches_request(adapter(**kept), ROUTED) is True
+
+
+def test_a_profile_with_no_gateway_wants_the_card_to_have_none():
+    # gateway=none is a command whose whole purpose is to leave the card bare, so a
+    # route left behind by the profile before it is the apply not having taken.
+    assert matches_request(adapter(gateways=(), dns=()), PROFILE) is True
+    assert matches_request(adapter(gateways=("192.168.11.1",), dns=()), PROFILE) is False
+
+
+def test_the_dns_servers_have_to_be_the_ones_the_profile_named():
+    assert matches_request(adapter(**CARRIED | {"dns": ()}), ROUTED) is False
+    assert matches_request(adapter(**CARRIED | {"dns": ("192.168.11.1",)}), ROUTED) is False
+    extra = CARRIED | {"dns": ("192.168.11.1", "8.8.8.8", "1.1.1.1")}
+    assert matches_request(adapter(**extra), ROUTED) is False
+
+
+def test_the_dns_servers_have_to_be_in_the_order_they_were_set():
+    # The primary is index 1 and the alternate index 2. A card answering with them
+    # the other way round is resolving through the wrong one first.
+    swapped = CARRIED | {"dns": ("8.8.8.8", "192.168.11.1")}
+    assert matches_request(adapter(**swapped), ROUTED) is False
+
+
+def test_one_server_named_twice_matches_the_card_that_carries_it_once():
+    # AdapterState.dns drops repeats, so the expectation has to drop them too or a
+    # profile with the same address in both fields could never match anything.
+    twice = Profile("ROGER", "192.168.11.2", "255.255.255.0", dns="9.9.9.9", dns_alt="9.9.9.9")
+    assert matches_request(adapter(dns=("9.9.9.9",)), twice) is True
+
+
+def test_a_profile_with_no_dns_wants_the_card_to_have_none():
+    assert matches_request(adapter(dns=()), PROFILE) is True
+    assert matches_request(adapter(dns=("8.8.8.8",)), PROFILE) is False
+
+
+def test_dhcp_expects_nothing_of_the_gateway_or_the_servers():
+    # What a DHCP server hands out is not ours to predict, and an expectation invented
+    # here would report a working lease as a failure.
+    leased = adapter(
+        dhcp=True,
+        addresses=(("192.168.1.50", 24),),
+        gateways=("192.168.1.1",),
+        dns=("192.168.1.1", "8.8.8.8"),
+    )
+    assert matches_request(leased, None) is True
+    assert matches_request(adapter(dhcp=True, addresses=(("192.168.1.50", 24),)), None) is True
+
+
+def test_a_gateway_that_never_landed_is_named_on_both_sides():
+    reader = Reader([adapter(**CARRIED | {"gateways": ("10.0.0.1",)})])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert outcome.ok is False
+    assert "brama" in outcome.message
+    assert "10.0.0.1" in outcome.message
+    assert "192.168.11.1" in outcome.message
+    # And it says the address did take, so this does not read as a card that never moved.
+    assert "Adres ustawiony" in outcome.message
+
+
+def test_a_missing_gateway_is_named_as_an_absence():
+    reader = Reader([adapter(**CARRIED | {"gateways": ()})])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert "brama: brak zamiast 192.168.11.1" in outcome.message
+
+
+def test_servers_that_never_landed_are_named_on_both_sides():
+    reader = Reader([adapter(**CARRIED | {"dns": ("1.1.1.1",)})])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert outcome.ok is False
+    assert "DNS: 1.1.1.1 zamiast 192.168.11.1, 8.8.8.8" in outcome.message
+
+
+def test_servers_left_on_a_card_that_should_have_none_are_reported():
+    # The failure that looks least like one: the right address, the last site's DNS.
+    reader = Reader([adapter(dns=("10.0.0.53",))])
+    outcome = apply(PROFILE, Runner(), reader, attempts=2)
+    assert outcome.ok is False
+    assert "DNS: 10.0.0.53 zamiast brak" in outcome.message
+
+
+def test_a_wrong_address_is_still_reported_as_an_address_problem():
+    # The address is asked about first: a card that never took it makes the rest moot.
+    reader = Reader([adapter(addresses=(("10.0.0.9", 24),), gateways=(), dns=())])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert "Karta ma 10.0.0.9 /24" in outcome.message
+    assert "brama" not in outcome.message and "DNS" not in outcome.message
+
+
+def test_polling_waits_for_the_servers_as_well_as_the_address():
+    # The address lands first and the servers a moment later, which is the ordinary
+    # shape of a successful apply and must not be reported as a failure.
+    reader = Reader([adapter(**CARRIED | {"dns": ()}), adapter(**CARRIED)])
+    outcome = apply(ROUTED, Runner(), reader)
+    assert outcome.ok is True
+    assert reader.calls == 2
+
+
 def test_real_netsh_output_is_decoded_as_utf_8():
     """The bytes in NETSH_REFUSAL are what netsh really emitted, not what we assumed.
 

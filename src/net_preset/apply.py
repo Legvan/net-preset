@@ -37,6 +37,9 @@ _NO_ANSWER_CODE = -1
 
 _UNREADABLE = "Nie udało się odczytać stanu karty"
 
+# What an empty list of gateways or servers is called when the status line names one.
+_NOTHING = "brak"
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -113,18 +116,61 @@ def read_by_guid(guid: str) -> AdapterState | None:
 def matches_request(adapter: AdapterState, profile: Profile | None) -> bool:
     """True when the adapter is now carrying what was asked of it.
 
-    A static profile is matched on the address together with its prefix length, and an
-    address the adapter kept alongside it does not spoil the match. DHCP asks for more
-    than the flag: an adapter whose lease never arrived has the flag set and a
-    self-assigned address, which is exactly the case worth telling the operator about.
+    A static profile writes three things and all three are read back, because netsh
+    answers a syntax error with an exit code of zero and there is nothing else to trust.
+    Checking the address alone passes a card that took the address and quietly kept the
+    last site's name servers — an office machine on a perfectly good IP with no working
+    name resolution, which is the failure that looks least like one.
+
+    - **The address**, together with its prefix length, among the adapter's addresses.
+      Another address kept alongside it does not spoil the match: a card can hold more
+      than one, and only the one that was asked for is ours.
+    - **The gateway.** A profile naming one needs it among the adapter's gateways —
+      among, not equal to, because a card may list more than one default route and only
+      the one asked for is the subject. A profile naming none needs the adapter to have
+      none at all, `gateway=none` being a command whose whole purpose is to leave it bare.
+    - **The DNS servers**, exactly and in order. The profile's primary is index 1 and its
+      alternate index 2, which is the order netsh is told to set them in and the order the
+      API reports them in. The expected list is deduplicated the way `AdapterState.dns`
+      is, so a profile naming one server in both fields still matches the card that
+      carries it once.
+
+    DHCP asks for more than the flag: an adapter whose lease never arrived has the flag
+    set and a self-assigned address, which is exactly the case worth telling the operator
+    about. Nothing is asked of its gateway or its servers — what a DHCP server hands out
+    is not ours to predict, and an expectation invented here would report a working lease
+    as a failure.
     """
     if profile is None:
         return adapter.dhcp and bool(adapter.addresses) and not adapter.apipa
 
+    return (
+        _address_matches(adapter, profile)
+        and _gateway_matches(adapter, profile)
+        and _dns_matches(adapter, profile)
+    )
+
+
+def _address_matches(adapter: AdapterState, profile: Profile) -> bool:
     prefix = prefix_length(profile.mask)
     if prefix is None:
         return False
     return (profile.address, prefix) in adapter.addresses
+
+
+def _gateway_matches(adapter: AdapterState, profile: Profile) -> bool:
+    if not profile.gateway:
+        return not adapter.gateways
+    return profile.gateway in adapter.gateways
+
+
+def _dns_matches(adapter: AdapterState, profile: Profile) -> bool:
+    return adapter.dns == _wanted_dns(profile)
+
+
+def _wanted_dns(profile: Profile) -> tuple[str, ...]:
+    """The servers the profile asks for, in the order netsh is told to set them."""
+    return tuple(dict.fromkeys(server for server in (profile.dns, profile.dns_alt) if server))
 
 
 def apply_profile(
@@ -267,16 +313,39 @@ def _dhcp_mismatch(state: AdapterState) -> Outcome:
 
 
 def _static_mismatch(state: AdapterState, profile: Profile) -> Outcome:
-    """Why the card is not on the requested address, naming what it has instead.
+    """Why the card is not carrying the profile, naming what it has instead.
 
     Naming it is the point of the read-back: it turns "it did not work" into something the
-    operator can act on without opening a console.
+    operator can act on without opening a console. The address is asked about first
+    because a card that never took it makes the other two beside the point; the two after
+    it open by saying the address is set, so a card that is reachable but has no route or
+    no name resolution does not read as a card that never changed at all. What it has is
+    named on both sides, and the address it settled on is not repeated — the *Teraz* line
+    directly above the status is already showing it.
     """
     wanted = _request_text(profile)
-    address = _address_text(state)
-    if address is None:
-        return Outcome(False, f"Karta nie ma adresu, oczekiwano {wanted}")
-    return Outcome(False, f"Karta ma {address}, nie {wanted}")
+    if not _address_matches(state, profile):
+        address = _address_text(state)
+        if address is None:
+            return Outcome(False, f"Karta nie ma adresu, oczekiwano {wanted}")
+        return Outcome(False, f"Karta ma {address}, nie {wanted}")
+
+    if not _gateway_matches(state, profile):
+        have, want = _servers_text(state.gateways), _servers_text(_wanted_gateways(profile))
+        return Outcome(False, f"Adres ustawiony, ale brama: {have} zamiast {want}")
+
+    have, want = _servers_text(state.dns), _servers_text(_wanted_dns(profile))
+    return Outcome(False, f"Adres ustawiony, ale DNS: {have} zamiast {want}")
+
+
+def _wanted_gateways(profile: Profile) -> tuple[str, ...]:
+    """The gateway the profile asks for, as a list so it reads like the adapter's."""
+    return (profile.gateway,) if profile.gateway else ()
+
+
+def _servers_text(servers: Sequence[str]) -> str:
+    """A list of addresses as the status line names it, or a word for an empty one."""
+    return ", ".join(servers) if servers else _NOTHING
 
 
 def _address_text(state: AdapterState) -> str | None:
