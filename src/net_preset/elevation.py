@@ -17,6 +17,8 @@ import subprocess
 import sys
 from collections.abc import Sequence
 
+from net_preset.system import system_directory
+
 __all__ = ["ensure_elevated", "is_elevated", "relaunch_elevated"]
 
 _PACKAGE = "net_preset"
@@ -65,7 +67,17 @@ def relaunch_elevated(argv: Sequence[str] | None = None) -> bool:
     parts = arguments if getattr(sys, "frozen", False) else ["-m", _PACKAGE, *arguments]
     params = subprocess.list2cmdline(parts)
 
-    result = _shell_execute(None, _RUNAS, sys.executable, params, None, _SW_SHOWNORMAL)
+    # The elevated copy is started in the system directory, not in this process's
+    # own. A null lpDirectory would hand it whatever directory this one happens to be
+    # sitting in, and the portable build is started from wherever it was dropped -- a
+    # USB stick, a Downloads folder -- which anyone can write to without a token. The
+    # current directory is on the search path Windows uses for DLLs and for programs
+    # named without a directory, so passing a writable one to a process that is about
+    # to hold the administrator token is the same hole as calling netsh by name. The
+    # system directory is the nearest one that needs that token to write to.
+    result = _shell_execute(
+        None, _RUNAS, sys.executable, params, system_directory(), _SW_SHOWNORMAL
+    )
     return result > _SHELL_EXECUTE_SUCCESS_FLOOR
 
 

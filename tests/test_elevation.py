@@ -1,9 +1,11 @@
 import sys
 import types
+from pathlib import PureWindowsPath
 
 import pytest
 
 from net_preset import elevation
+from net_preset.system import system_directory
 
 
 def fake_ctypes(**exports):
@@ -112,16 +114,50 @@ def test_the_elevated_copy_is_asked_for_a_normal_visible_window(monkeypatch):
     recorded = {}
 
     def fake_shell_execute(hwnd, verb, file, params, directory, show):
-        recorded.update(hwnd=hwnd, directory=directory, show=show)
+        recorded.update(hwnd=hwnd, show=show)
         return 42
 
     monkeypatch.setattr(elevation, "_shell_execute", fake_shell_execute)
     monkeypatch.setattr(elevation.sys, "frozen", True, raising=False)
     assert elevation.relaunch_elevated([]) is True
-    # No owner window, and no working directory of our own so the elevated copy
-    # inherits this one. SW_SHOWNORMAL (1), because a hidden relaunch would look
+    # No owner window, and SW_SHOWNORMAL (1), because a hidden relaunch would look
     # to the operator exactly like the application refusing to start.
-    assert (recorded["hwnd"], recorded["directory"], recorded["show"]) == (None, None, 1)
+    assert (recorded["hwnd"], recorded["show"]) == (None, 1)
+
+
+def test_the_elevated_copy_starts_in_the_system_directory(monkeypatch):
+    recorded = {}
+
+    def fake_shell_execute(hwnd, verb, file, params, directory, show):
+        recorded.update(directory=directory)
+        return 42
+
+    monkeypatch.setattr(elevation, "_shell_execute", fake_shell_execute)
+    monkeypatch.setattr(elevation.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(elevation, "system_directory", lambda: r"C:\Windows\System32")
+    assert elevation.relaunch_elevated([]) is True
+    assert recorded["directory"] == r"C:\Windows\System32"
+
+
+def test_the_elevated_copy_never_inherits_this_process_directory(monkeypatch):
+    # A null lpDirectory hands the elevated copy whatever directory this process is
+    # sitting in, and a portable copy of this program is started from wherever it was
+    # dropped: a USB stick, a Downloads folder, a desktop, none of which need a token
+    # to write to. The current directory is on the search path Windows uses for DLLs
+    # and for programs named without one, so the copy that is about to hold the
+    # administrator token must be given a directory that needs the token to write to.
+    recorded = {}
+
+    def fake_shell_execute(hwnd, verb, file, params, directory, show):
+        recorded.update(directory=directory)
+        return 42
+
+    monkeypatch.setattr(elevation, "_shell_execute", fake_shell_execute)
+    monkeypatch.setattr(elevation.sys, "frozen", True, raising=False)
+    assert elevation.relaunch_elevated([]) is True
+    assert recorded["directory"] is not None
+    assert PureWindowsPath(recorded["directory"]).is_absolute()
+    assert recorded["directory"] == system_directory()
 
 
 def test_the_wrapper_hands_shellexecutew_its_arguments_in_order(monkeypatch):

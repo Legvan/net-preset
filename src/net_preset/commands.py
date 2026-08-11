@@ -3,13 +3,35 @@
 Pure functions: they build argument lists and run nothing. Every argument is a
 separate list element, so the list can be handed to subprocess without a shell
 and an interface name containing spaces or Polish characters survives intact.
+
+The one thing resolved rather than built is the path to netsh itself, once, when
+this module is imported.
 """
 
 from __future__ import annotations
 
-from net_preset.profile import Profile
+from pathlib import PureWindowsPath
 
-_NETSH = ["netsh", "interface", "ipv4"]
+from net_preset.profile import Profile
+from net_preset.system import system_directory
+
+# netsh is named by its full path, and that is a security property rather than a
+# tidiness one. subprocess hands a list to CreateProcess with no application name,
+# and CreateProcess resolves a bare name by searching -- the directory this program
+# was loaded from first, then the current directory, and only then System32. This
+# program runs with the administrator token the operator granted at the UAC prompt,
+# and the portable build is meant to be carried on a USB stick and run from a
+# Downloads folder or a desktop, none of which need any token to write to. A
+# netsh.exe dropped beside the program would be started in preference to Windows'
+# own and would inherit that token.
+#
+# There is deliberately no check that the file is there and no falling back to the
+# bare name when it is not: the bare name is the hole. A netsh that cannot be started
+# raises an OSError that `apply.run_netsh` already turns into a line in the window,
+# naming the path it could not start.
+NETSH_PATH = str(PureWindowsPath(system_directory()) / "netsh.exe")
+
+_NETSH = [NETSH_PATH, "interface", "ipv4"]
 
 
 def static_commands(interface: str, profile: Profile) -> list[list[str]]:

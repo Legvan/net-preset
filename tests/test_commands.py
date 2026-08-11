@@ -1,5 +1,11 @@
-from net_preset.commands import commands_for, dhcp_commands, static_commands
+import sys
+from pathlib import Path, PureWindowsPath
+
+import pytest
+
+from net_preset.commands import NETSH_PATH, commands_for, dhcp_commands, static_commands
 from net_preset.profile import Profile
+from net_preset.system import system_directory
 
 MINIMAL = Profile(name="ROGER", address="192.168.11.2", mask="255.255.255.0")
 FULL = Profile(
@@ -12,14 +18,36 @@ FULL = Profile(
 )
 
 
-def test_every_command_invokes_netsh_on_ipv4():
+def test_netsh_is_named_by_its_full_path_and_never_by_name():
+    # A bare "netsh" is resolved by CreateProcess, and its search reaches the
+    # directory this program was loaded from and then the current directory before
+    # it reaches System32. Every command built here is run with the administrator
+    # token the operator granted at the UAC prompt, and the portable build is meant
+    # to be run from a USB stick or a Downloads folder -- writable without any token
+    # at all -- so a netsh.exe dropped beside it would be started in preference to
+    # Windows' own and would inherit that token.
+    path = PureWindowsPath(NETSH_PATH)
+    assert path.is_absolute()
+    assert path.name == "netsh.exe"
+
+
+def test_netsh_is_taken_from_the_system_directory():
+    assert PureWindowsPath(NETSH_PATH).parent == PureWindowsPath(system_directory())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="looks for the real netsh")
+def test_the_resolved_path_is_the_netsh_windows_ships():
+    assert Path(NETSH_PATH).is_file()
+
+
+def test_every_command_invokes_the_system_netsh_on_ipv4():
     for command in static_commands("Ethernet", FULL) + dhcp_commands("Ethernet"):
-        assert command[:3] == ["netsh", "interface", "ipv4"]
+        assert command[:3] == [NETSH_PATH, "interface", "ipv4"]
 
 
 def test_a_minimal_profile_sets_the_address_and_clears_the_gateway():
     assert static_commands("Ethernet", MINIMAL)[0] == [
-        "netsh",
+        NETSH_PATH,
         "interface",
         "ipv4",
         "set",
@@ -39,7 +67,7 @@ def test_a_gateway_is_passed_through_when_present():
 def test_a_profile_without_dns_clears_the_servers():
     commands = static_commands("Ethernet", MINIMAL)
     assert commands[1] == [
-        "netsh",
+        NETSH_PATH,
         "interface",
         "ipv4",
         "set",
@@ -53,7 +81,7 @@ def test_a_profile_without_dns_clears_the_servers():
 
 def test_a_primary_dns_is_registered():
     assert static_commands("Ethernet", FULL)[1] == [
-        "netsh",
+        NETSH_PATH,
         "interface",
         "ipv4",
         "set",
@@ -68,7 +96,7 @@ def test_a_primary_dns_is_registered():
 
 def test_an_alternate_dns_is_added_at_index_two():
     assert static_commands("Ethernet", FULL)[2] == [
-        "netsh",
+        NETSH_PATH,
         "interface",
         "ipv4",
         "add",
@@ -93,8 +121,8 @@ def test_dns_commands_never_validate():
 
 def test_dhcp_restores_both_the_address_and_the_servers():
     assert dhcp_commands("Ethernet") == [
-        ["netsh", "interface", "ipv4", "set", "address", "name=Ethernet", "source=dhcp"],
-        ["netsh", "interface", "ipv4", "set", "dnsservers", "name=Ethernet", "source=dhcp"],
+        [NETSH_PATH, "interface", "ipv4", "set", "address", "name=Ethernet", "source=dhcp"],
+        [NETSH_PATH, "interface", "ipv4", "set", "dnsservers", "name=Ethernet", "source=dhcp"],
     ]
 
 
