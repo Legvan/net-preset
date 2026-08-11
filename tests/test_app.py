@@ -685,6 +685,45 @@ def test_the_picker_is_out_of_reach_while_an_apply_is_in_flight(make_app):
     assert str(window.adapter_picker.cget("state")) == "normal"
 
 
+@windowed
+def test_the_picker_row_does_not_move_under_an_apply(make_app):
+    # The wave froze the list and suppressed the re-announcement so that nothing shifts
+    # while the operator waits. The picker row was the one thing left that could: it
+    # appears and disappears on the one-to-two boundary, and it takes the window's
+    # height with it -- 49 pixels of it, measured here. A dock coming off mid-apply
+    # would move the buttons and the answer down the screen under a waiting hand.
+    gate = threading.Event()
+    cards = [adapter(), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards, applier=FakeApply(gate=gate))
+    window.update_idletasks()
+    tall = window.winfo_reqheight()
+    assert window.adapter_row.grid_info() != {}
+
+    seen = []
+
+    def disturb():
+        cards.pop()
+        window.on_tick()
+        window.update_idletasks()
+        seen.append((window.adapter_row.grid_info() != {}, window.winfo_reqheight()))
+
+    window.after(0, window.on_apply)
+    window.after(10, disturb)
+    window.after(20, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+
+    assert seen == [(True, tall)]
+    # And the answer's own refresh puts the row away, which is also what proves the
+    # assertion above is about something: this window really does change height here.
+    window.update_idletasks()
+    assert window.adapter_row.grid_info() == {}
+    assert window.winfo_reqheight() < tall
+
+
 def show_invisibly(window):
     """Map the window without putting it on the screen of whoever runs the suite.
 

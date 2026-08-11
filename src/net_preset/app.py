@@ -668,7 +668,7 @@ class Application(tk.Tk):
         self._sync_adapter_row()
 
     def _sync_adapter_row(self) -> None:
-        """Show the picker exactly while there is a choice to make.
+        """Show the picker exactly while there is a choice to make, unless one is in flight.
 
         One Ethernet card is the normal machine, and a dropdown with one entry is
         a control that answers a question nobody asked. With none there is nothing
@@ -677,7 +677,22 @@ class Application(tk.Tk):
         grid_remove is what hides them, because it keeps the grid options it was
         given: showing the row again puts it back where it was rather than
         wherever a second set of options happened to say.
+
+        Held still while an apply is in flight, and that is the same decision the
+        frozen list and the suppressed re-announcement already make. The row and
+        its rule are the tallest thing in the window that can come and go: a
+        second card arriving on the tick moves everything below it — the list, the
+        three buttons, the answer the operator is waiting for — down the screen,
+        on a window they have no way of resizing back. The picker was the last
+        thing here that could still move under a waiting hand.
+
+        Nothing is lost by waiting. The card in use is settled by `_use_adapter`
+        either way, the menu behind the picker is filled when it opens, and the
+        refresh that carries the answer syncs the row a moment later — failing
+        that, the next tick does.
         """
+        if self.busy:
+            return
         wanted = len(self.adapters) > 1
         if wanted == bool(self.adapter_row.grid_info()):
             return
