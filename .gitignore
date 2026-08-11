@@ -7,6 +7,13 @@ venv/
 build/
 dist/
 *.spec
+# ...except this project's own. The blanket rule above is inherited from a
+# sibling project where PyInstaller generates the spec into build\, making it an
+# artifact. Here packaging\net-preset.spec is hand-written source and belongs in
+# the repository. Without this exception a new spec is invisible to git status:
+# the committed one survives only because git exempts files it already tracks,
+# and that exemption does not extend to the next one.
+!packaging/*.spec
 
 # Tooling
 .pytest_cache/

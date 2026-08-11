@@ -80,7 +80,16 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # upx=False, deliberately, where the sibling says True. UPX is not installed
+    # here, so True would be a no-op today and a silent change of artifact the
+    # day anyone installs it for an unrelated reason. There is nothing to buy
+    # with it: 11.6 MB against a 20 MB ceiling is not a size problem. And there
+    # is something to lose, because packing is a well-known heuristic-AV trigger
+    # and this binary is already the shape that gets scrutinised hardest --
+    # onefile, self-extracting and unsigned -- on a machine where Smart App
+    # Control is demonstrably flipping its verdict on unsigned binaries. Stacking
+    # a second trigger onto a live problem buys nothing.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

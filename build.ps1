@@ -123,9 +123,15 @@ try {
     # interpreter, which is signed, is the same build by a route Smart App Control
     # has no opinion about, and it is the same reason install.ps1 exists in the
     # sibling project.
+    # --clean, as the sibling passes it. PyInstaller's own detection of changed
+    # options is good -- it notices an edited spec and rebuilds what the edit
+    # affected -- but a script whose output is meant to be shipped should not
+    # depend on cache invalidation being right every time. Discarding build\ and
+    # the cache first costs a few seconds and makes the artifact measured at the
+    # end of this run the same one a fresh clone would produce.
     $code = Invoke-Native {
         uv run python -m PyInstaller packaging\net-preset.spec `
-            --noconfirm --distpath dist --workpath build
+            --clean --noconfirm --distpath dist --workpath build
     }
     if ($code -ne 0) { Write-Fail "PyInstaller exited with $code."; exit $code }
 
