@@ -41,15 +41,27 @@ _FALLBACK = r"C:\Windows\System32"
 def system_directory() -> str:
     r"""The directory Windows keeps its own programs in, normally C:\Windows\System32.
 
-    A 32-bit process is answered with SysWOW64, which holds that process's own 32-bit
-    copy of netsh. Both are Windows' copies, and neither can be written to without the
-    token this program asks the operator for.
+    WOW64 needs no special case here, and not for the reason it looks like: a 32-bit
+    process is told System32 as well -- measured, with IntPtr.Size at 4 -- because
+    SysWOW64 is what GetSystemWow64DirectoryW answers and not this call. The file
+    system redirector is what makes that correct, sending a 32-bit process's open of
+    System32\netsh.exe to the 32-bit copy in SysWOW64. Both are Windows' own
+    directories and neither can be written to without the token this program asks the
+    operator for.
+
+    Total, by intent: every failure answers _FALLBACK instead of raising. The call is
+    a two-argument one against a buffer allocated in the same breath, so nothing here
+    is expected to go wrong -- but it runs while a profile is being applied, and a
+    resolver that raised would cost more than the command it was resolving for.
+    `elevation.is_elevated` treats its own probe the same way and for the same reason.
     """
-    buffer = ctypes.create_unicode_buffer(_MAX_PATH)
     try:
+        buffer = ctypes.create_unicode_buffer(_MAX_PATH)
         written = ctypes.windll.kernel32.GetSystemDirectoryW(buffer, len(buffer))
-    except AttributeError, OSError:
-        # No windll means no Windows, and nothing that uses this path can run here.
+    except Exception:
+        # No windll at all means this is not Windows. Anything else -- a bad argument,
+        # a refusal, no memory for the buffer -- means a call that could not be made.
+        # Neither is worth an exception, and both land on the same absolute path.
         return _FALLBACK
     if not 0 < written < len(buffer):
         return _FALLBACK

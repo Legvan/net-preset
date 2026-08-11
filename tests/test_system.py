@@ -58,8 +58,21 @@ def test_a_platform_with_no_windows_api_still_answers_an_absolute_path(monkeypat
     assert PureWindowsPath(system.system_directory()).is_absolute()
 
 
-def test_a_refusal_from_the_api_still_answers_an_absolute_path(monkeypatch):
-    monkeypatch.setattr(system, "ctypes", fake_ctypes(error=OSError("kernel32 refused")))
+@pytest.mark.parametrize(
+    "error",
+    [
+        OSError("kernel32 refused"),
+        ValueError("not a valid buffer"),
+        ctypes.ArgumentError("wrong type for argument 1"),
+        MemoryError(),
+    ],
+)
+def test_no_refusal_from_the_api_escapes(monkeypatch, error):
+    # OSError is not the only way a ctypes call fails: a bad conversion raises
+    # ValueError or ctypes.ArgumentError, and the buffer allocation can raise
+    # MemoryError. This runs while a profile is being applied, so an exception
+    # escaping here would cost the apply rather than the value it was asked for.
+    monkeypatch.setattr(system, "ctypes", fake_ctypes(error=error))
     assert PureWindowsPath(system.system_directory()).is_absolute()
 
 
