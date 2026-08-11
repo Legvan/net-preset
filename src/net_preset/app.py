@@ -294,14 +294,17 @@ class Application(tk.Tk):
         takes all three away, so a second click cannot overlap the first and the
         list cannot change under the worker.
 
-        The adapter picker goes with them, and so does the list. The worker holds
-        the card and the profile it was given, so moving either mid-apply is safe
-        — but the answer, when it lands, is about what was chosen when USTAW was
-        pressed, and it would arrive under a highlighted row, a picker and a
-        *Teraz* line naming something else. The highlight is what an operator
-        reads to know which profile is on the card, so a success line for ROGER
-        sitting under a highlighted BIURO is a wrong answer to the question they
-        are actually asking.
+        The adapter picker goes with them, and the list is frozen where it stands.
+        The worker holds the card and the profile it was given, so moving either
+        mid-apply is safe — but the answer, when it lands, is about what was
+        chosen when USTAW was pressed, and it would arrive under a highlighted
+        row, a picker and a *Teraz* line naming something else. The highlight is
+        what an operator reads to know which profile is on the card, so a success
+        line for ROGER sitting under a highlighted BIURO is a wrong answer to the
+        question they are actually asking.
+
+        Frozen rather than disabled, for the reason set out in `_build_list`: the
+        highlight has to stay lit while it is the thing being talked about.
         """
         index = self._selected_index()
         editable = index is not None and index > 0
@@ -310,7 +313,7 @@ class Application(tk.Tk):
         self.edit_button.configure(state=_state(editable and not self.busy))
         self.apply_button.configure(state=_state(appliable and not self.busy))
         self.adapter_picker.configure(state=_state(not self.busy))
-        self.listbox.configure(state=_state(not self.busy))
+        self.listbox.bindtags(self.list_tags if not self.busy else self.frozen_tags)
 
     def on_adapter_chosen(self) -> None:
         """Switch to the adapter the operator picked and remember it for next time."""
@@ -690,6 +693,18 @@ class Application(tk.Tk):
             frame, height=LIST_HEIGHT, exportselection=False, **theme.listbox_options()
         )
         self.listbox.grid(row=row, column=0, sticky="ew", pady=(12, 0))
+        # How the list is frozen while an apply is in flight: Tk's own Listbox
+        # bindings come out of the tag list, and every click and arrow key that
+        # could move the selection goes with them.
+        #
+        # Not `state=disabled`, which was tried and photographed: Tk draws no
+        # selection at all on a disabled listbox — the highlight goes with the
+        # rest — and the highlight is the one thing that has to go on naming the
+        # row the worker was handed. Leaving the widget enabled keeps it lit.
+        # The bindings on the widget itself stay, because the two they carry that
+        # reach `on_apply` check `busy` for themselves.
+        self.list_tags = self.listbox.bindtags()
+        self.frozen_tags = tuple(tag for tag in self.list_tags if tag != self.listbox.winfo_class())
         self.listbox.bind("<<ListboxSelect>>", self.on_selection_changed)
         # Double-click is the shortcut the sketch asked for; Enter is the same
         # gesture for a technician who is already on the keyboard, and the numeric

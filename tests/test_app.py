@@ -641,47 +641,96 @@ def test_the_picker_is_out_of_reach_while_an_apply_is_in_flight(make_app):
     assert str(window.adapter_picker.cget("state")) == "normal"
 
 
+def show_invisibly(window):
+    """Map the window without putting it on the screen of whoever runs the suite.
+
+    A click means nothing to an unmapped listbox. With no geometry computed,
+    `index @x,y` answers the same row whatever the coordinates, so a click that
+    was delivered cannot be told from one that was refused -- measured, and it
+    would have made the test below pass against a window that did nothing.
+    Mapping makes the coordinates real; alpha 0 keeps the window out of sight.
+    """
+    window.attributes("-alpha", 0.0)
+    window.deiconify()
+    window.update()
+
+
+def click_a_row(window):
+    """Click the top row the way an operator does, and answer where the highlight is.
+
+    A real click, because the freeze works by taking Tk's own Listbox bindings
+    out of the widget's tag list: anything that goes round the bindings --
+    selection_set, for one -- keeps working and would pass whatever the window
+    did about it.
+
+    One click per window and no more. Tk replays the first synthetic Button-1
+    faithfully and then stops moving the selection for any that follow, on a
+    window that was never frozen at all.
+    """
+    window.listbox.event_generate("<Button-1>", x=10, y=4)
+    window.listbox.event_generate("<ButtonRelease-1>", x=10, y=4)
+    return window.listbox.curselection()
+
+
 @windowed
-def test_the_list_is_out_of_reach_while_an_apply_is_in_flight(make_app):
+def test_a_click_moves_the_highlight_when_nothing_is_in_flight(make_app):
+    # The control for the test below. Without it that one would pass just as well
+    # on a click that never reached the list at all.
+    window = make_app([adapter()])
+    window.profiles = [ONE, TWO]
+    window.refresh_list(select=2)
+    show_invisibly(window)
+    assert click_a_row(window) == (0,)
+
+
+@windowed
+def test_a_click_cannot_move_the_highlight_out_from_under_an_answer_in_flight(make_app):
+    # BIURO is what was handed to the worker, so BIURO's address is what the
+    # answer will name. A highlight that had moved by the time it landed would
+    # have the operator reading a success line against the wrong row -- and
+    # walking away believing the wrong profile is on the card.
+    gate = threading.Event()
+    window = make_app([adapter()], applier=FakeApply(gate=gate))
+    window.profiles = [ONE, TWO]
+    window.refresh_list(select=2)
+    show_invisibly(window)
+    seen = []
+    window.after(0, window.on_apply)
+    window.after(10, lambda: seen.append(click_a_row(window)))
+    window.after(20, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+    assert seen == [(2,)]
+    # and the list is out of the freeze once the answer is in
+    assert window.listbox.winfo_class() in window.listbox.bindtags()
+
+
+@windowed
+def test_the_frozen_list_still_shows_which_row_is_being_applied(make_app):
+    # Disabling the widget was tried first and photographed. Tk draws no
+    # selection at all on a disabled listbox -- the highlight goes with
+    # everything else -- so the row being applied lost its highlight for exactly
+    # as long as the status line was talking about it.
     gate = threading.Event()
     window = make_app([adapter()], applier=FakeApply(gate=gate))
     window.profiles = [ONE, TWO]
     window.refresh_list(select=1)
     seen = []
     window.after(0, window.on_apply)
-    window.after(10, lambda: seen.append(str(window.listbox.cget("state"))))
+    window.after(
+        10,
+        lambda: seen.append((str(window.listbox.cget("state")), window.listbox.curselection())),
+    )
     window.after(20, gate.set)
     try:
         pump(window, lambda: not window.busy)
     finally:
         gate.set()
         window.worker.join(timeout=5)
-    assert seen == ["disabled"]
-    assert str(window.listbox.cget("state")) == "normal"
-
-
-@windowed
-def test_the_highlight_cannot_move_out_from_under_an_answer_in_flight(make_app):
-    # ROGER is what was handed to the worker, so ROGER's address is what the
-    # answer will name. A highlight that had reached BIURO by then would have the
-    # operator reading a success line against the wrong row -- and walking away
-    # believing the wrong profile is on the card.
-    gate = threading.Event()
-    window = make_app([adapter()], applier=FakeApply(gate=gate))
-    window.profiles = [ONE, TWO]
-    window.refresh_list(select=1)
-    moved = []
-    window.after(0, window.on_apply)
-    window.after(10, lambda: window.listbox.selection_set(2))
-    window.after(15, lambda: moved.append(window.listbox.curselection()))
-    window.after(20, gate.set)
-    try:
-        pump(window, lambda: not window.busy)
-    finally:
-        gate.set()
-        window.worker.join(timeout=5)
-    assert moved == [(1,)]
-    assert window.listbox.curselection() == (1,)
+    assert seen == [("normal", (1,))]
 
 
 @windowed
