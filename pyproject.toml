@@ -2,6 +2,7 @@
 name = "net-preset"
 version = "0.1.0"
 description = "Named IPv4 profiles for a Windows Ethernet adapter"
+readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
