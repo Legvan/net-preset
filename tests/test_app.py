@@ -8,15 +8,18 @@ from conftest import new_root
 
 from net_preset.adapters import AdapterState
 from net_preset.app import (
+    CONTENT_WIDTH,
     DHCP_LABEL,
+    NO_ADAPTER,
     NO_ADDRESS,
     NO_ANSWER,
     NO_CARD,
     NO_LEASE,
     NOT_ELEVATED,
+    STATUS_LINES,
     Application,
+    fit,
     list_entries,
-    shorten,
     state_text,
 )
 from net_preset.apply import Outcome
@@ -240,21 +243,87 @@ def test_the_current_line_calls_an_apipa_address_a_missing_lease():
     assert state_text(adapter(addresses=(("169.254.7.7", 16),), dhcp=True)) == NO_LEASE
 
 
-def test_a_long_message_is_folded_onto_one_short_line():
-    folded = shorten("x" * 200 + "\n" + "y" * 200)
-    assert len(folded) <= 140
-    assert "\n" not in folded
-    assert folded.endswith("…")
+# -- fitting a message to the status line --------------------------------------
+#
+# A fake font, seven pixels to the character, so these say what `fit` decides
+# rather than what Segoe measures. The window tests further down use the real one.
+
+
+def seven(text):
+    return 7 * len(text)
 
 
 def test_a_short_message_is_left_alone():
-    assert shorten("Gotowy") == "Gotowy"
+    assert fit("Gotowy", seven, 700) == "Gotowy"
+
+
+def test_whitespace_is_folded_before_anything_else():
+    assert fit("Nie udało\n  się   wykonać", seven, 700) == "Nie udało się wykonać"
+
+
+def test_a_message_wraps_at_the_width_it_is_given():
+    assert fit("aaa bbb ccc ddd", seven, 7 * 7) == "aaa bbb\nccc ddd"
+
+
+def test_what_does_not_fit_in_the_last_line_is_cut():
+    folded = fit("aaa bbb ccc ddd eee", seven, 7 * 7, lines=2)
+    assert folded == "aaa bbb\nccc dd…"
+    assert all(seven(row) <= 7 * 7 for row in folded.splitlines())
+
+
+def test_a_token_too_wide_for_a_line_is_broken_rather_than_left_to_overflow():
+    # Tk would leave this one whole and make the label wider than the window.
+    folded = fit("a" * 20, seven, 7 * 7, lines=3)
+    assert folded == "aaaaaaa\naaaaaaa\naaaaaa"
+
+
+def test_a_long_unbroken_token_is_cut_like_anything_else():
+    folded = fit("C:/" + "x" * 400, seven, 7 * 7, lines=2)
+    assert folded.count("\n") == 1
+    assert folded.endswith("…")
+    assert all(seven(row) <= 7 * 7 for row in folded.splitlines())
+
+
+def test_a_width_narrower_than_a_glyph_still_terminates():
+    # _longest_prefix never answers zero, or this would never come back. The
+    # ellipsis eats the whole last line here, which is all a width of one pixel
+    # can be given.
+    assert fit("abc", seven, 1, lines=2) == "a\n…"
 
 
 @windowed
 def test_the_current_line_shows_the_live_adapter(make_app):
     window = make_app([adapter(addresses=(("10.0.0.5", 8),))])
     assert window.current.cget("text") == "10.0.0.5 /8"
+
+
+# Every one of these grew the window when the status line was cut by character
+# count: 110 characters of Polish capitals and of wide words each took a third
+# line, and an unbroken token took a third line and made the label wider than the
+# window as well. The last is the reachable production route — an OSError with a
+# long path in it, folded into a message by the worker's own except branch.
+GROWERS = [
+    "ŁÓDŹŻŚĆŃ" * 14,
+    "WMWM " * 22,
+    "W" * 110,
+    "Nie udało się zmienić ustawień: [WinError 3] " + "C:/" + "katalogu/" * 40 + "plik.json",
+]
+
+
+@windowed
+@pytest.mark.parametrize("message", GROWERS)
+def test_a_message_that_used_to_grow_the_window_no_longer_does(make_app, message):
+    window = make_app([adapter()])
+    window.update_idletasks()
+    at_rest = (window.winfo_reqwidth(), window.winfo_reqheight())
+
+    # The route a netsh refusal really takes into the window.
+    window.on_applied(window.attempt, Outcome(False, message))
+    window.update_idletasks()
+
+    assert (window.winfo_reqwidth(), window.winfo_reqheight()) == at_rest
+    assert window.status.winfo_reqwidth() <= CONTENT_WIDTH
+    assert window.status.cget("text").count("\n") + 1 <= STATUS_LINES
 
 
 @windowed
@@ -299,12 +368,31 @@ def test_a_selection_past_the_end_of_the_list_names_no_profile(make_app):
     assert window.selected_profile() is None
 
 
+BAD_FILE = '{"profiles": [{"name": "", "address": "x"}]}'
+
+
 @windowed
 def test_a_complaint_from_the_stored_file_reaches_the_status_line(tmp_path, make_app):
-    (tmp_path / "profiles.json").write_text('{"profiles": [{"name": "", "address": "x"}]}')
+    (tmp_path / "profiles.json").write_text(BAD_FILE)
     window = make_app([adapter()])
     assert "Pominięto" in window.status.cget("text")
     assert str(window.status.cget("foreground")) == DANGER
+
+
+@windowed
+def test_a_missing_card_is_said_before_a_complaint_about_the_file(tmp_path, make_app):
+    # Both are true at once here. The one that stops the window doing anything
+    # goes first; the note describes something already lost.
+    (tmp_path / "profiles.json").write_text(BAD_FILE)
+    window = make_app([])
+    assert window.status.cget("text") == NO_ADAPTER
+
+
+@windowed
+def test_a_missing_token_is_said_before_a_complaint_about_the_file(tmp_path, make_app):
+    (tmp_path / "profiles.json").write_text(BAD_FILE)
+    window = make_app([adapter()], elevated=False)
+    assert window.status.cget("text") == NOT_ELEVATED
 
 
 @windowed
@@ -349,6 +437,26 @@ def test_a_remembered_adapter_that_is_gone_falls_back_to_the_first(tmp_path, mak
     save_adapter_choice("{GONE}", tmp_path / "settings.json")
     window = make_app([adapter(), adapter("{BBBB}", "Ethernet 2")])
     assert window.adapter.guid == "{AAAA}"
+
+
+@windowed
+def test_the_picker_is_out_of_reach_while_an_apply_is_in_flight(make_app):
+    # The worker holds the card it was handed, so a switch mid-apply cannot go to
+    # the wrong card — but the answer would land under a picker naming another
+    # one, which reads as a result about the card the operator is now looking at.
+    gate = threading.Event()
+    window = make_app([adapter(), adapter("{BBBB}", "Ethernet 2")], applier=FakeApply(gate=gate))
+    seen = []
+    window.after(0, window.on_apply)
+    window.after(10, lambda: seen.append(str(window.adapter_picker.cget("state"))))
+    window.after(20, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+    assert seen == ["disabled"]
+    assert str(window.adapter_picker.cget("state")) == "normal"
 
 
 @windowed
@@ -514,6 +622,48 @@ def test_a_worker_that_throws_does_not_leave_the_buttons_dead(make_app):
     apply_and_settle(window)
     assert "iphlpapi zniknęło" in window.status.cget("text")
     assert str(window.apply_button.cget("state")) == "normal"
+
+
+@windowed
+def test_a_thread_that_refuses_to_start_still_leaves_a_watchdog(monkeypatch, make_app):
+    # The one case where the worker never runs at all. If the watchdog were armed
+    # after start(), the buttons would stay disabled for the rest of the session.
+    from net_preset import app as module
+
+    window = make_app([adapter()])
+
+    class Refuses:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(module.threading, "Thread", Refuses)
+    with pytest.raises(RuntimeError):
+        window.on_apply()
+
+    assert window.watchdog is not None
+    window.on_no_answer(window.attempt)
+    assert str(window.apply_button.cget("state")) == "normal"
+    assert window.status.cget("text") == NO_ANSWER
+
+
+@windowed
+def test_the_tick_takes_ustaw_away_when_the_card_goes(make_app):
+    # What the tick is for: an adapter unplugged mid-session leaves USTAW pointing
+    # at nothing, and nothing else would refresh the buttons.
+    cards = [adapter()]
+    window = make_app(cards)
+    assert str(window.apply_button.cget("state")) == "normal"
+    scheduled = window.ticker
+
+    cards.clear()
+    window.on_tick()
+
+    assert str(window.apply_button.cget("state")) == "disabled"
+    assert window.current.cget("text") == NO_CARD
+    assert window.ticker != scheduled  # and it comes round again
 
 
 @windowed

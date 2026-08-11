@@ -25,7 +25,8 @@ from __future__ import annotations
 import contextlib
 import threading
 import tkinter as tk
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from tkinter import font as tkfont
 from tkinter import ttk
 
 from net_preset import theme
@@ -44,6 +45,10 @@ from net_preset.settings import load_adapter_choice, save_adapter_choice, settin
 from net_preset.store import load_profiles, profiles_path, save_profiles
 
 WINDOW_TITLE = "net-preset"
+
+# What `fit` needs of a font: the pixel width of a string. tkfont.Font.measure is
+# the one the window passes; a test passes a fixed width per character.
+Measure = Callable[[str], int]
 
 # DHCP is not a profile: it cannot be edited or deleted, and it is always the
 # first row, so the operator's way back to a working network is in the same place
@@ -81,9 +86,11 @@ CONTENT_WIDTH = 420
 # wrong — the worst moment to move the buttons under somebody's hand.
 STATUS_LINES = 2
 STATUS_GAP = 8
-# What fits in those two lines at CONTENT_WIDTH, with room for wider glyphs than
-# the average. Past this a message is cut; see `shorten`.
-STATUS_LIMIT = 110
+# The width `fit` wraps to. A ttk label asks for four pixels more than its text
+# measures (measured, both dimensions), and asking for more than the column holds
+# is what widens the window.
+LABEL_PADDING = 4
+STATUS_WIDTH = CONTENT_WIDTH - LABEL_PADDING
 
 # When to stop waiting for the worker and give the window back. An honest apply
 # can take three netsh calls that each spend their whole budget plus the
@@ -114,15 +121,71 @@ def state_text(adapter: AdapterState | None) -> str:
     return NO_ADDRESS if primary is None else f"{primary[0]} /{primary[1]}"
 
 
-def shorten(text: str, limit: int = STATUS_LIMIT) -> str:
-    """One line, short enough to fit in the two the status line reserves.
+def fit(text: str, measure: Measure, width: int, lines: int = STATUS_LINES) -> str:
+    """*text* wrapped into at most *lines* lines, none of them wider than *width*.
 
-    netsh answers a refusal with as many lines as it likes and the window cannot
-    grow, so the whole thing is folded onto one line and cut. The part that names
-    the problem is at the front, which is why the tail is what goes.
+    *measure* answers the pixel width of a string in the font the label draws
+    with, so the answer is exact rather than a guess at how many characters go on
+    a line: 110 characters of Polish lower case take two lines, the same count in
+    capitals takes three, and one long token takes as many as it likes.
+
+    Counting characters is what the first version of this did, and it was wrong in
+    both directions. Tk's own wraplength is no better on its own — it breaks at
+    spaces only, so a netsh refusal or an OSError carrying one long unbroken path
+    makes the label *wider* than the window as well as taller, and the window is
+    not resizable. So a token too wide for a line of its own is cut here, and what
+    still does not fit is dropped with an ellipsis: the part that names the
+    problem is at the front, which is why the tail is what goes.
     """
-    folded = " ".join(str(text).split())
-    return folded if len(folded) <= limit else folded[: limit - 1] + "…"
+    rows: list[str] = []
+    current = ""
+    overflowed = False
+
+    for atom in _atoms(str(text).split(), measure, width):
+        if not current:
+            current = atom
+        elif measure(f"{current} {atom}") <= width:
+            current = f"{current} {atom}"
+        elif len(rows) + 1 < lines:
+            rows.append(current)
+            current = atom
+        else:
+            overflowed = True
+            break
+
+    rows.append(current)
+    if overflowed:
+        rows[-1] = _with_ellipsis(rows[-1], measure, width)
+    return "\n".join(rows)
+
+
+def _atoms(words: Iterable[str], measure: Measure, width: int) -> Iterator[str]:
+    """The words, with any word too wide for a whole line cut into pieces."""
+    for word in words:
+        while measure(word) > width:
+            cut = _longest_prefix(word, measure, width)
+            yield word[:cut]
+            word = word[cut:]
+        yield word
+
+
+def _longest_prefix(word: str, measure: Measure, width: int) -> int:
+    """How much of *word* fits in *width*, and never less than one character.
+
+    Never less, because the caller cuts the word at this point and goes round
+    again: a zero would spin for ever on a width narrower than one glyph.
+    """
+    cut = 1
+    while cut < len(word) and measure(word[: cut + 1]) <= width:
+        cut += 1
+    return cut
+
+
+def _with_ellipsis(row: str, measure: Measure, width: int) -> str:
+    """*row* cut back far enough that it still fits once the ellipsis is on it."""
+    while row and measure(row + "…") > width:
+        row = row[:-1]
+    return row.rstrip() + "…"
 
 
 def _state(enabled: bool) -> str:
@@ -160,6 +223,8 @@ class Application(tk.Tk):
         self.worker: threading.Thread | None = None
         self.attempt = 0
         self.watchdog: str | None = None
+        # The status line wraps itself, against the font it is drawn in.
+        self.measure: Measure = tkfont.Font(root=self, font=theme.BODY_FONT).measure
 
         self._build()
         self.refresh_list()
@@ -168,7 +233,7 @@ class Application(tk.Tk):
         # The list, not the first button: the operator arrives at a window whose
         # arrow keys already move through the profiles.
         self.listbox.focus_set()
-        self.ticker = self.after(REFRESH_MS, self._tick)
+        self.ticker = self.after(REFRESH_MS, self.on_tick)
 
     # -- what the window knows ----------------------------------------------------
 
@@ -220,6 +285,11 @@ class Application(tk.Tk):
         needs a card to apply to and a token to do it with. An apply in flight
         takes all three away, so a second click cannot overlap the first and the
         list cannot change under the worker.
+
+        The adapter picker goes with them. The worker holds the card it was given,
+        so switching cards mid-apply is safe — but the answer, when it lands, is
+        about the card that was chosen when USTAW was pressed, and it would arrive
+        under a picker and a *Teraz* line both naming a different one.
         """
         index = self._selected_index()
         editable = index is not None and index > 0
@@ -227,6 +297,8 @@ class Application(tk.Tk):
         self.add_button.configure(state=_state(not self.busy))
         self.edit_button.configure(state=_state(editable and not self.busy))
         self.apply_button.configure(state=_state(appliable and not self.busy))
+        if self.adapter_picker is not None:
+            self.adapter_picker.configure(state=_state(not self.busy))
 
     def on_adapter_chosen(self) -> None:
         """Switch to the adapter the operator picked and remember it for next time."""
@@ -300,13 +372,17 @@ class Application(tk.Tk):
         self.on_selection_changed()
         self._set_status(f"Ustawiam {DHCP_LABEL if profile is None else profile.label}…")
 
+        # Armed before the thread runs, not after. A start() that raises — the OS
+        # refusing another thread — would otherwise leave the buttons disabled
+        # with nothing scheduled to give them back, which is the one state the
+        # watchdog exists to make impossible.
+        self.watchdog = self.after(WATCHDOG_MS, self.on_no_answer, self.attempt)
         # daemon, so a netsh wedged inside a driver call cannot keep the process
         # alive after the operator closes the window.
         self.worker = threading.Thread(
             target=self._work, args=(self.attempt, self.adapter, profile), daemon=True
         )
         self.worker.start()
-        self.watchdog = self.after(WATCHDOG_MS, self.on_no_answer, self.attempt)
 
     # -- the worker and what comes back from it ------------------------------------
 
@@ -370,7 +446,7 @@ class Application(tk.Tk):
 
     # -- the timer -----------------------------------------------------------------
 
-    def _tick(self) -> None:
+    def on_tick(self) -> None:
         """Every two seconds: what the card carries, and what the buttons may do.
 
         The second half matters as much as the first. A USB adapter unplugged mid
@@ -379,7 +455,7 @@ class Application(tk.Tk):
         """
         self.refresh_current()
         self.on_selection_changed()
-        self.ticker = self.after(REFRESH_MS, self._tick)
+        self.ticker = self.after(REFRESH_MS, self.on_tick)
 
     # -- the bits the methods above lean on ----------------------------------------
 
@@ -434,7 +510,7 @@ class Application(tk.Tk):
     def _set_status(self, text: str, *, error: bool = False) -> None:
         """Put *text* on the status line, in the tone that says how to take it."""
         self.status.configure(
-            text=shorten(text),
+            text=fit(text, self.measure, STATUS_WIDTH),
             foreground=theme.DANGER if error else theme.TEXT_SECONDARY,
         )
 
@@ -476,11 +552,13 @@ class Application(tk.Tk):
             anchor="nw",
         )
         self.status.grid(row=6, column=0, sticky="ew", pady=(STATUS_GAP, 0))
-        # Reserved from the label's own two-line height rather than from the
-        # font's: ttk adds four pixels of its own around the text, and a
-        # reservation that leaves them out is a window that grows by exactly
-        # those four pixels the first time a message needs the second line.
-        self.status.configure(text="\n".join(["Ag"] * STATUS_LINES))
+        # Reserved from the label holding the tallest thing `fit` can ever hand
+        # it — run through `fit` itself, so the worst case is the real one rather
+        # than a guess at it — and measured off the label rather than off the
+        # font, because ttk adds four pixels of its own that a font-based sum
+        # leaves out. Either mistake is a window that grows the first time
+        # something goes wrong.
+        self.status.configure(text=fit("W" * 400, self.measure, STATUS_WIDTH))
         frame.rowconfigure(6, minsize=STATUS_GAP + self.status.winfo_reqheight())
         self.status.configure(text="")
 
