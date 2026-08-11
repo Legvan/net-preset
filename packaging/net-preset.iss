@@ -61,6 +61,11 @@ DisableProgramGroupPage=yes
 ; it, and it is absent from an installer carrying a payload that does not ask for
 ; elevation. The supervised install is what settles where the files land.
 PrivilegesRequired=admin
+; No PrivilegesRequiredOverridesAllowed, where the sibling has =dialog. Offering
+; a per-user install would contradict the paragraph at the top of this file: the
+; application needs an administrator token at every launch wherever it was
+; installed from, so a per-user copy would buy the operator nothing and would
+; cost the one shared copy. The choice is made here, once, and not offered again.
 OutputDir=..\dist
 OutputBaseFilename={#AppName}-setup
 Compression=lzma2/max
