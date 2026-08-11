@@ -44,12 +44,22 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 ; This directive, with {autopf} above, is the whole of the per-machine decision.
-; Do not go looking for it in the compiled installer: Inno writes
-; requireAdministrator into the setup program it carries inside itself and leaves
-; the outer stub Windows launches at asInvoker, so a finished installer greps as
-; asInvoker whatever this says. Compiling the same script with
-; InternalCompressLevel=none makes that inner manifest legible, and that is how
-; this one was checked -- requireAdministrator, once, exactly where Inno puts it.
+; It cannot be read back out of the compiled installer, and that is worth writing
+; down so nobody loses an afternoon proving otherwise. Setup's manifest says
+; asInvoker and goes on saying it whatever this line is set to, because Inno asks
+; for elevation at run time instead of declaring it: Setup relaunches itself
+; through ShellExecuteEx with the runas verb, the same route
+; src\net_preset\elevation.py takes when the program is run from source, and the
+; only route that could support a runtime choice like the sibling's
+; PrivilegesRequiredOverridesAllowed. Compile this script twice with nothing
+; changed but this line and the two installers' manifests match tag for tag.
+;
+; One warning for whoever tries it anyway. Compile with Compression=none and the
+; payload is stored verbatim, so net-preset.exe's own requireAdministrator turns
+; up in the search and reads like a result. It is not one -- it sits at exactly
+; the offset where the application begins plus the offset of its manifest within
+; it, and it is absent from an installer carrying a payload that does not ask for
+; elevation. The supervised install is what settles where the files land.
 PrivilegesRequired=admin
 OutputDir=..\dist
 OutputBaseFilename={#AppName}-setup

@@ -34,15 +34,18 @@
     does. Nothing about that is visible from the outside, so the build reads the
     request back out of the finished binary and refuses to report success
     without it. The installer is read back afterwards too, though not for its
-    manifest: Inno Setup puts requireAdministrator into the setup program it
-    carries inside itself, not into the stub that Windows launches, and that
-    inner copy is compressed, so a compiled installer greps as asInvoker however
-    PrivilegesRequired is set. What the installer can be asked is its version,
-    which Inno stamps into the outer file's resources from AppVersion, and that
-    closes the one coupling nothing else here watches: packaging\net-preset.iss
-    names the version a second time, and nothing makes it agree with
-    pyproject.toml. So the version is read back out of the finished installer and
-    compared against the one the project declares.
+    manifest. An Inno Setup installer's manifest says asInvoker and goes on saying
+    it whatever PrivilegesRequired is set to, because Setup asks for elevation at
+    run time rather than declaring it: it relaunches itself through ShellExecuteEx
+    with the runas verb, which is the same route src\net_preset\elevation.py takes
+    when the program is run from source. Compiling the script twice with nothing
+    changed but that directive gives two installers whose manifests match tag for
+    tag, so there is nothing there to check. What the installer can be asked is
+    its version, which Inno stamps into the file's resources from AppVersion, and
+    that closes the one coupling nothing else here watches:
+    packaging\net-preset.iss names the version a second time, and nothing makes it
+    agree with pyproject.toml. So the version is read back out of the finished
+    installer and compared against the one the project declares.
 
     THERE IS NO -SkipInstaller. The sibling build script has one; this one does
     not need it. The installer step is last, and the executable it packages is
