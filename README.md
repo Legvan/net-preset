@@ -124,6 +124,10 @@ the way back to a working network is in the same place whatever else the list ho
 | `EDYTUJ` | Opens the selected profile. Disabled on the DHCP row. `USUŃ` sits in the bottom-left of that window and asks before removing anything. |
 | `USTAW` | Applies the selected row to the card. Double-clicking a row, or pressing Enter, does the same. |
 
+**Applying a profile to the card that is carrying a remote session drops that session.**
+Remote Desktop, SSH and VNC all arrive on the address that is about to change, and the
+way back is only as good as the address that replaces it.
+
 A profile needs a name, an address and a mask. The gateway, the primary DNS and the
 alternate DNS may all be left empty — an empty gateway means the card gets no default
 route, which is the normal case on an isolated controller subnet. An alternate DNS with no
@@ -256,6 +260,10 @@ would notice the two drifting apart.
   measured; there was no such machine to hand.
 - **The verification cannot see what it did not ask for.** A gateway or DNS server put
   there by something else is not reported.
+- **Exercised on one machine and one card.** Every measurement in this file was taken on
+  a single Windows 11 laptop with one Ethernet adapter. A second make of card, a docking
+  station, a USB adapter, a machine with two cards in it — none of them have been tried;
+  there was none to hand.
 
 ## How it works
 
@@ -266,9 +274,15 @@ process — which is what lets the `Teraz` line refresh on a timer without stutt
 
 Writes go through `netsh`, one invocation per operation, arguments passed as a list and
 never through a shell, so a connection name containing spaces or Polish characters
-survives. `netsh` answers in the system language, and its output is decoded as UTF-8 first
-and the OEM code page second — measured, in that order: real `netsh` writes UTF-8 into a
-pipe regardless of the console code page.
+survives. It is named by its full path in the system directory, which Windows is asked for
+rather than taken from `%SystemRoot%`: a bare name would be resolved by searching, and
+that search reaches the folder the program was started from before Windows' own copy. For
+`net-preset.exe` on a USB stick that is a folder anyone can write to, and these commands
+run with the administrator token.
+
+`netsh` answers in the system language, and its output is decoded as UTF-8 first and the
+OEM code page second — measured, in that order: real `netsh` writes UTF-8 into a pipe
+regardless of the console code page.
 
 Applying runs on a worker thread; the window is only ever handed the result.
 
