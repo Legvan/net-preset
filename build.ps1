@@ -1,14 +1,22 @@
 <#
 .SYNOPSIS
-    Checks the source, then builds the standalone application.
+    Checks the source, then builds the standalone application and its installer.
 
 .DESCRIPTION
-    Produces one artifact in dist\:
+    Produces two artifacts in dist\:
 
-      net-preset.exe    the whole application in a single file, which asks for
-                        administrator rights once, at launch
+      net-preset.exe          the whole application in a single file, which asks
+                              for administrator rights once, at launch
+      net-preset-setup.exe    an installer that deploys that same file into
+                              Program Files, with a Start Menu entry, an
+                              uninstall entry and an optional desktop shortcut
 
-    Two things about this script are deliberate and should not be "simplified"
+    One PyInstaller build, two ways of handing it over. The installer packages
+    the executable this script has just built and just verified; it does not
+    build a second one, and there is no separate portable archive, because the
+    executable already is the portable form.
+
+    Three things about this script are deliberate and should not be "simplified"
     away:
 
     THE CHECKS COME FIRST. uv sync, ruff and pytest run before PyInstaller, and
@@ -25,7 +33,24 @@
     prompt raised after the program has started rather than one prompt before it
     does. Nothing about that is visible from the outside, so the build reads the
     request back out of the finished binary and refuses to report success
-    without it.
+    without it. The installer is read back afterwards too, though not for its
+    manifest: Inno Setup puts requireAdministrator into the setup program it
+    carries inside itself, not into the stub that Windows launches, and that
+    inner copy is compressed, so a compiled installer greps as asInvoker however
+    PrivilegesRequired is set. What the installer can be asked is its version,
+    which Inno stamps into the outer file's resources from AppVersion, and that
+    closes the one coupling nothing else here watches: packaging\net-preset.iss
+    names the version a second time, and nothing makes it agree with
+    pyproject.toml. So the version is read back out of the finished installer and
+    compared against the one the project declares.
+
+    THERE IS NO -SkipInstaller. The sibling build script has one; this one does
+    not need it. The installer step is last, and the executable it packages is
+    finished and on disk before that step starts, so a machine without Inno
+    Setup does not lose the executable -- it loses the final step and is told
+    which winget command fixes it. A switch would buy a quieter failure at the
+    price of a supported way to reach the end of this script with half the
+    deliverables built, which is the kind of thing this script exists to refuse.
 
     The executable is not code-signed, and on this hardware that makes every
     build a coin flip. Smart App Control is enforced here and judges each
@@ -37,7 +62,10 @@
     it is a re-roll, and this project's own README records it. So a green build
     here does not promise a runnable executable, and a refused executable does
     not mean a broken build. Signing is the fix. Until then, run from source on
-    any machine that refuses the binary.
+    any machine that refuses the binary. Neither artifact is signed and the
+    installer is not the way around this: an unsigned setup executable is the
+    shape Smart App Control scrutinises hardest, and the sibling project watched
+    it refuse one installer while admitting the application beside it.
 
 .EXAMPLE
     .\build.ps1
@@ -151,6 +179,62 @@ try {
         exit 1
     }
     Write-Ok 'the manifest asks for requireAdministrator'
+
+    Write-Step 'Compiling the installer (Inno Setup)'
+
+    # Inno Setup can be installed per-user or per-machine, winget will do either,
+    # and version 7 will one day sit where 6 does now. Six candidates cover both
+    # scopes for both versions, newest last so an existing 6 keeps being used
+    # until it is gone. Get-Command is no help: ISCC.exe is not put on PATH by
+    # any of those installers.
+    $iscc = @(
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+        "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+        "${env:ProgramFiles}\Inno Setup 7\ISCC.exe"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if (-not $iscc) {
+        Write-Fail 'Inno Setup is not installed.'
+        Write-Host '    dist\net-preset.exe is built and usable; only the installer is missing.' -ForegroundColor Red
+        Write-Host '    Install Inno Setup and re-run:' -ForegroundColor Red
+        Write-Host '        winget install --id JRSoftware.InnoSetup' -ForegroundColor White
+        exit 1
+    }
+    Write-Ok "ISCC ($iscc)"
+
+    $code = Invoke-Native { & $iscc 'packaging\net-preset.iss' | Select-Object -Last 3 }
+    if ($code -ne 0) { Write-Fail "Inno Setup exited with $code."; exit $code }
+
+    $setup = Join-Path $Repo 'dist\net-preset-setup.exe'
+    if (-not (Test-Path $setup)) { Write-Fail "expected $setup, but it is not there."; exit 1 }
+    Write-Ok "dist\net-preset-setup.exe ($([math]::Round((Get-Item $setup).Length / 1MB, 1)) MB)"
+
+    Write-Step 'Reading the version back out of the installer'
+
+    # packaging\net-preset.iss carries the version a second time, because ISCC
+    # cannot read pyproject.toml. Nothing makes the two agree, and a stale one is
+    # invisible: the installer builds, installs, and then misreports itself in
+    # Apps & features and in its own uninstall entry for the rest of its life.
+    # Inno stamps AppVersion into the compiled file's version resource, so the
+    # finished artifact can be asked what it thinks it is.
+    $declared = Select-String -Path (Join-Path $Repo 'pyproject.toml') `
+        -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if (-not $declared) {
+        Write-Fail 'pyproject.toml does not declare a version.'
+        exit 1
+    }
+    $declared = $declared.Matches[0].Groups[1].Value
+    $stamped = (Get-Item $setup).VersionInfo.ProductVersion
+    if ($stamped) { $stamped = $stamped.Trim() }
+    if ($stamped -ne $declared) {
+        Write-Fail "the installer says $stamped, pyproject.toml says $declared."
+        Write-Host '    Bring AppVersion in packaging\net-preset.iss back in step.' -ForegroundColor Red
+        exit 1
+    }
+    Write-Ok "the installer carries version $stamped"
 }
 finally {
     Pop-Location
@@ -158,9 +242,11 @@ finally {
 
 Write-Host ''
 Write-Host '  Done.' -ForegroundColor Green
-Write-Host '  Test the build before shipping it: launch dist\net-preset.exe, accept the' -ForegroundColor DarkGray
-Write-Host '  UAC prompt, and confirm a window titled net-preset appears.' -ForegroundColor DarkGray
-Write-Host '  If it is refused instead -- "Zasady kontroli aplikacji zablokowaly ten plik" --' -ForegroundColor DarkGray
+Write-Host '  Test both artifacts before shipping them: launch dist\net-preset.exe, accept' -ForegroundColor DarkGray
+Write-Host '  the UAC prompt, and confirm a window titled net-preset appears. Then run' -ForegroundColor DarkGray
+Write-Host '  dist\net-preset-setup.exe, tick the desktop shortcut, and confirm it lands in' -ForegroundColor DarkGray
+Write-Host '  Program Files and starts from the Start Menu.' -ForegroundColor DarkGray
+Write-Host '  If either is refused instead -- "Zasady kontroli aplikacji zablokowaly ten plik" --' -ForegroundColor DarkGray
 Write-Host '  that is Smart App Control declining an unsigned binary, not a broken build.' -ForegroundColor DarkGray
 Write-Host ''
 
