@@ -217,7 +217,7 @@ def _decode(raw: bytes) -> str:
 
     UTF-8 therefore comes first, and strictly: the failure to decode is the whole signal.
     Text in the system OEM page is almost never valid UTF-8 — cp852 spells "ż" as a lone
-    a7, which is not a legal sequence — so the two cases can be told apart without
+    be, which is not a legal sequence — so the two cases can be told apart without
     guessing. Only then are undecodable bytes replaced rather than raised over: a mangled
     character costs a letter of a message, an exception would cost the whole attempt.
 
