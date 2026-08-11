@@ -34,10 +34,10 @@
     window, any UAC prompt, or any code of ours ran -- and the next build, from
     the same unchanged script, was admitted and stopped instead at the elevation
     gate, which is the manifest doing its job. Rebuilding is not a workaround,
-    it is a re-roll; the same thing happened to card-wedge and its README says
-    so. So a green build here does not promise a runnable executable, and a
-    refused executable does not mean a broken build. Signing is the fix. Until
-    then, run from source on any machine that refuses the binary.
+    it is a re-roll, and this project's own README records it. So a green build
+    here does not promise a runnable executable, and a refused executable does
+    not mean a broken build. Signing is the fix. Until then, run from source on
+    any machine that refuses the binary.
 
 .EXAMPLE
     .\build.ps1

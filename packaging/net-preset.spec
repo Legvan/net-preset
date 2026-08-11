@@ -23,8 +23,8 @@
 #   plik", before any window, any UAC prompt, or any code of ours ran. The next
 #   build, from this same unchanged file, was admitted. Smart App Control weighs
 #   each unsigned binary on its own and its verdict does not hold from one build
-#   to the next, which is exactly what card-wedge's README documents. Signing is
-#   the fix; until then, expect either outcome and run from source when refused.
+#   to the next, which this project's own README records. Signing is the fix;
+#   until then, expect either outcome and run from source when refused.
 #
 # net-preset has no runtime dependencies, so none of the hidden-import or
 # binary-collection machinery the sibling build needs for pyscard belongs here:
