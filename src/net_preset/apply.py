@@ -152,13 +152,6 @@ def matches_request(adapter: AdapterState, profile: Profile | None) -> bool:
       API reports them in. The expected list is deduplicated the way `AdapterState.dns`
       is, so a profile naming one server in both fields still matches the card that
       carries it once.
-    - **The DHCP flag off.** Static is a mode, not three values, and the values alone do
-      not prove the mode changed. Measured on a media-disconnected card: `set address
-      source=static` writes the address, the gateway and the servers, and leaves
-      EnableDHCP at 1. The card ends up a DHCP client with a manual address bolted
-      alongside its APIPA one — every value the profile asked for is present, and a
-      lease may replace all of them the moment a cable goes in. Asking only what the
-      card carries reports that as a complete success, which is what it did.
 
     DHCP asks for more than the flag: an adapter whose lease never arrived has the flag
     set and a self-assigned address, which is exactly the case worth telling the operator
