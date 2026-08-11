@@ -21,6 +21,7 @@ say which of the two happened, because only one of them is worth worrying about.
 
 import time
 import tkinter as tk
+from collections.abc import Callable
 
 import pytest
 
@@ -40,12 +41,17 @@ def _is_missing_display(error: tk.TclError) -> bool:
     return any(marker in text for marker in _MISSING_DISPLAY)
 
 
-def new_root() -> tk.Tk:
-    """A Tk root, retrying past the transient failure described above."""
+def new_root(factory: Callable[[], tk.Tk] = tk.Tk) -> tk.Tk:
+    """A Tk root, retrying past the transient failure described above.
+
+    *factory* builds it: `tk.Tk` for a bare root, or a subclass such as the
+    application window, whose `__init__` creates an interpreter of its own and
+    meets the same flake on the way.
+    """
     error = None
     for attempt in range(_ATTEMPTS):
         try:
-            return tk.Tk()
+            return factory()
         except tk.TclError as failure:
             # Nowhere to draw is not a condition that improves on the next go,
             # and retrying it would put nearly two seconds of sleep in front of
