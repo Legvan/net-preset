@@ -33,19 +33,33 @@ no runtime dependency of any kind.
 
 ### For an operator
 
-`net-preset.exe` is a single file. Put it anywhere and run it. Deleting it uninstalls the
-program; the only thing left behind is the settings file described under
-[Where the settings live](#where-the-settings-live).
+Two artifacts, one build. They carry the same program and differ only in how it gets onto
+the machine.
 
-Windows will show a UAC prompt before the window appears. That is the manifest asking for
-the administrator token the program needs to change an address.
+**`net-preset-setup.exe` — for a machine the technician keeps.** Installs into
+`C:\Program Files\net-preset` for every account on the machine, with a Start Menu entry, an
+optional desktop shortcut and an entry under Apps & features that takes it away again. It
+asks for administrator rights once, to write there.
+
+Per-machine is deliberate, and it is the opposite of what the sibling project card-wedge
+chose. net-preset cannot change an address without an administrator token and its manifest
+says so, which means a UAC prompt at every launch whatever the installer did. Installing
+per-user would save the operator nothing and would put one copy in each account.
+
+**`net-preset.exe` — for a USB stick, or a machine touched once.** A single file. Put it
+anywhere and run it. Deleting it uninstalls the program; the only thing left behind is the
+settings file described under [Where the settings live](#where-the-settings-live). Nothing
+is written to Program Files and nothing appears in Apps & features.
+
+Either way Windows shows a UAC prompt before the window appears. That is the manifest asking
+for the administrator token the program needs to change an address.
 
 #### If Windows refuses to run it
 
 > Zasady kontroli aplikacji zablokowały ten plik
 
-That is **Smart App Control**, on by default on clean Windows 11 installations. The
-executable is not code-signed.
+That is **Smart App Control**, on by default on clean Windows 11 installations. Neither
+artifact is code-signed.
 
 What was measured on the development machine, with Smart App Control enforced, from an
 unchanged build script:
@@ -60,6 +74,14 @@ Smart App Control judges each unsigned binary on its own and its verdict is not 
 across builds. Rebuilding is a re-roll, not a workaround. The sibling project card-wedge
 measured the same instability in the opposite direction — a build that ran, then the same
 artifact blocked after a rebuild — so do not read either result as a rule.
+
+`net-preset-setup.exe` has no row in that table: it is newer than the measurements and has
+not been put in front of Smart App Control here. Do not expect it to be the way round the
+problem, and do not be surprised if it is the worse bet of the two. An unsigned setup
+executable is the shape Smart App Control scrutinises hardest, and card-wedge, on this same
+machine and equally unsigned, had an installer refused while the application beside it was
+admitted. If a machine turns the installer away, reach for the bare executable rather than
+rebuilding — and for the source if it turns that away too.
 
 **The fix is code signing.** Until then, run from source: `uv run net-preset` goes through
 a signed Python interpreter, which Smart App Control does not treat this way.
@@ -198,6 +220,18 @@ code — a build script that packages a red test suite is worse than no build sc
 
 The manifest is verified after packaging: the build fails if `requireAdministrator` did not
 make it into the executable.
+
+`dist\net-preset-setup.exe` is compiled last, from `packaging\net-preset.iss`, and needs
+[Inno Setup](https://jrsoftware.org/isinfo.php): `winget install --id JRSoftware.InnoSetup`.
+Without it the build stops at that step and says which command fixes it — the executable is
+finished by then, so a missing Inno Setup costs the installer, not the build. There is no
+switch to skip the step.
+
+The installer packages the executable that was just built. There is no second PyInstaller
+run and no separate portable archive, because the executable already is the portable form.
+Its version is read back out of the compiled installer afterwards and compared against
+`pyproject.toml`, because the `.iss` has to name the version a second time and nothing else
+would notice the two drifting apart.
 
 ## Known limits
 
