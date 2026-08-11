@@ -45,6 +45,16 @@ _NOTHING = "brak"
 _REFUSED = "Nie udało się wykonać polecenia"
 _REFUSED_LATE = "Adres już zmieniony, ale nie udało się wykonać polecenia"
 
+# A connected card that took every value of a static profile and never left DHCP. Not
+# phrased as the mirror of "DHCP się nie włączyło" further down: the two would differ by
+# one letter, mean opposite things, and share a status line read at a glance.
+_STILL_DHCP = "Adres ustawiony, ale karta nadal jest klientem DHCP"
+
+# A static profile stored on a card with no cable in it. Everything but the flag is
+# already on the card and the flag follows the link, so this is a success that says what
+# it is waiting for — the same shape as the DHCP line that waits for the same thing.
+_WAITING = "czekam na kabel"
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -121,15 +131,18 @@ def read_by_guid(guid: str) -> AdapterState | None:
 def matches_request(adapter: AdapterState, profile: Profile | None) -> bool:
     """True when the adapter is now carrying what was asked of it.
 
-    A static profile writes three things and all three are read back, because netsh
-    answers a syntax error with an exit code of zero and there is nothing else to trust.
-    Checking the address alone passes a card that took the address and quietly kept the
-    last site's name servers — an office machine on a perfectly good IP with no working
+    A static profile writes three values and a mode, and all four are read back, because
+    netsh answers a syntax error with an exit code of zero and there is nothing else to
+    trust. Checking the address alone passes a card that took the address and quietly kept
+    the last site's name servers — an office machine on a perfectly good IP with no working
     name resolution, which is the failure that looks least like one.
 
     - **The address**, together with its prefix length, among the adapter's addresses.
       Another address kept alongside it does not spoil the match: a card can hold more
       than one, and only the one that was asked for is ours.
+    - **The DHCP flag off, on a card that is connected.** Static is a mode as well as
+      three values, and the values alone do not prove the mode changed. The link is what
+      makes the flag readable at all — see `_dhcp_cleared`.
     - **The gateway.** A profile naming one needs it among the adapter's gateways —
       among, not equal to, because a card may list more than one default route and only
       the one asked for is the subject. A profile naming none needs the adapter to have
@@ -139,6 +152,13 @@ def matches_request(adapter: AdapterState, profile: Profile | None) -> bool:
       API reports them in. The expected list is deduplicated the way `AdapterState.dns`
       is, so a profile naming one server in both fields still matches the card that
       carries it once.
+    - **The DHCP flag off.** Static is a mode, not three values, and the values alone do
+      not prove the mode changed. Measured on a media-disconnected card: `set address
+      source=static` writes the address, the gateway and the servers, and leaves
+      EnableDHCP at 1. The card ends up a DHCP client with a manual address bolted
+      alongside its APIPA one — every value the profile asked for is present, and a
+      lease may replace all of them the moment a cable goes in. Asking only what the
+      card carries reports that as a complete success, which is what it did.
 
     DHCP asks for more than the flag: an adapter whose lease never arrived has the flag
     set and a self-assigned address, which is exactly the case worth telling the operator
@@ -151,9 +171,27 @@ def matches_request(adapter: AdapterState, profile: Profile | None) -> bool:
 
     return (
         _address_matches(adapter, profile)
+        and _dhcp_cleared(adapter)
         and _gateway_matches(adapter, profile)
         and _dns_matches(adapter, profile)
     )
+
+
+def _dhcp_cleared(adapter: AdapterState) -> bool:
+    """True unless the card is still a DHCP client on a link that has had its chance.
+
+    Windows defers the DHCP-disable of a static apply until the media comes up. Measured
+    twice on the same card: `set address … source=static` on a disconnected one writes the
+    address, the gateway and the servers at once and leaves EnableDHCP at 1, so the card
+    reads as a DHCP client carrying a manual address beside its APIPA one. Fifteen minutes
+    later, with nothing run in between, a cable going in cleared the flag on its own. On a
+    card that was connected to begin with, the whole thing lands in one go.
+
+    So the flag is evidence only where the link gave it a chance to change. Asking it of a
+    disconnected card would report a configuration that is stored, complete and about to
+    work as a failure, and asking nothing of a connected one is the hole this closes.
+    """
+    return not (adapter.connected and adapter.dhcp)
 
 
 def _address_matches(adapter: AdapterState, profile: Profile) -> bool:
@@ -293,7 +331,16 @@ def _poll(
 
 
 def _report(state: AdapterState | None, profile: Profile | None) -> Outcome:
-    """Turn the state the adapter settled on into the line the operator reads."""
+    """Turn the state the adapter settled on into the line the operator reads.
+
+    A static profile that matched on a card with no cable in it is a success with a
+    caveat, and it gets the caveat DHCP already had. The configuration is stored and the
+    address, the gateway and the servers are on the card; only the DHCP flag is still
+    waiting on the link, and it clears itself when the cable goes in. Saying just
+    "Ustawiono" would leave a technician who is configuring ahead of the site visit with
+    no idea that anything is outstanding, and saying nothing about the cable would have
+    them hunting for a fault that is not there.
+    """
     if state is None:
         return Outcome(False, _UNREADABLE)
 
@@ -303,7 +350,10 @@ def _report(state: AdapterState | None, profile: Profile | None) -> Outcome:
             address, prefix = state.primary
             return Outcome(True, f"DHCP: {address} /{prefix}")
         # The adapter carries exactly what was asked, or the match would have failed.
-        return Outcome(True, f"Ustawiono {_request_text(profile)}")
+        set_text = f"Ustawiono {_request_text(profile)}"
+        if not state.connected:
+            return Outcome(True, f"{set_text} — {_WAITING}")
+        return Outcome(True, set_text)
 
     return _dhcp_mismatch(state) if profile is None else _static_mismatch(state, profile)
 
@@ -335,11 +385,24 @@ def _static_mismatch(state: AdapterState, profile: Profile) -> Outcome:
 
     Naming it is the point of the read-back: it turns "it did not work" into something the
     operator can act on without opening a console. The address is asked about first
-    because a card that never took it makes the other two beside the point; the two after
-    it open by saying the address is set, so a card that is reachable but has no route or
-    no name resolution does not read as a card that never changed at all. What it has is
-    named on both sides, and the address it settled on is not repeated — the *Teraz* line
-    directly above the status is already showing it.
+    because a card that never took it makes the other three beside the point; the three
+    after it open by saying the address is set, so a card that is reachable but has no
+    route, no name resolution or no static mode does not read as a card that never changed
+    at all. What it has is named on both sides, and the address it settled on is not
+    repeated — the *Teraz* line directly above the status is already showing it.
+
+    The flag comes straight after the address and ahead of the other two, and the order is
+    a ranking of what the operator cannot do. A wrong address is a card that is not
+    reachable now; a card still leasing is a card that is reachable now and will not stay
+    that way, because a lease can replace everything the profile wrote. Not reachable
+    outranks not durable — and while the flag is on, the gateway and the servers are not
+    ours to judge either, which is why they wait behind it.
+
+    Its own line has to be read against the *Teraz* line above it, which shows an address
+    without saying where it came from. "Karta ma X, nie Y" would be a lie here — X and Y
+    are the same address — so the line says the address landed and names the one thing
+    that did not. It is only reachable on a connected card; on a disconnected one the flag
+    is not yet the card's answer, and `_report` has already called that a success.
     """
     wanted = _request_text(profile)
     if not _address_matches(state, profile):
@@ -347,6 +410,9 @@ def _static_mismatch(state: AdapterState, profile: Profile) -> Outcome:
         if address is None:
             return Outcome(False, f"Karta nie ma adresu, oczekiwano {wanted}")
         return Outcome(False, f"Karta ma {address}, nie {wanted}")
+
+    if not _dhcp_cleared(state):
+        return Outcome(False, _STILL_DHCP)
 
     if not _gateway_matches(state, profile):
         have, want = _servers_text(state.gateways), _servers_text(_wanted_gateways(profile))

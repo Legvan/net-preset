@@ -364,6 +364,95 @@ def test_polling_waits_for_the_servers_as_well_as_the_address():
     assert reader.calls == 2
 
 
+# -- the mode, which the read-back used to ignore altogether ---------------------
+#
+# Measured twice on one card. On a DISCONNECTED card, `set address
+# source=static` writes the address, the gateway and the servers at once and leaves
+# EnableDHCP at 1: the card reads as a DHCP client carrying a manual address beside its
+# APIPA one. Fifteen minutes later, with nothing run in between, a cable going in
+# cleared the flag on its own. On a CONNECTED card the whole thing lands in one go --
+# 11 of 11 independent checks agreed.
+#
+# So the flag is a requirement where the link gave it a chance to change, and no
+# evidence at all where it did not. Before this, net-preset asked nothing of it and
+# called the half-state a complete success.
+
+LEASING = CARRIED | {"dhcp": True}
+
+
+def test_a_connected_card_that_never_left_dhcp_does_not_match():
+    assert matches_request(adapter(**LEASING), ROUTED) is False
+
+
+def test_a_connected_card_that_left_dhcp_matches():
+    assert matches_request(adapter(**CARRIED), ROUTED) is True
+
+
+def test_a_connected_card_still_leasing_is_told_so_in_those_words():
+    reader = Reader([adapter(**LEASING)])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert outcome.ok is False
+    assert outcome.message == "Adres ustawiony, ale karta nadal jest klientem DHCP"
+
+
+def test_the_flag_is_waited_for_like_everything_else():
+    # It lands a moment after the address on a real card, which is the ordinary shape
+    # of a successful apply and must not be reported as a failure.
+    reader = Reader([adapter(**LEASING), adapter(**CARRIED)])
+    outcome = apply(ROUTED, Runner(), reader)
+    assert outcome.ok is True
+    assert reader.calls == 2
+
+
+def test_a_disconnected_card_is_not_asked_about_the_flag():
+    # Windows defers the disable to link-up. Asking for it here would report a stored,
+    # complete configuration as a failure -- the case the first live run misread.
+    stored = adapter(**LEASING | {"connected": False})
+    assert matches_request(stored, ROUTED) is True
+
+
+def test_a_stored_profile_on_a_cableless_card_is_a_success_that_says_what_it_waits_for():
+    reader = Reader([adapter(**LEASING | {"connected": False})])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert outcome.ok is True
+    assert outcome.message == "Ustawiono 192.168.11.2 /24 — czekam na kabel"
+
+
+def test_a_connected_card_that_took_the_profile_says_nothing_about_a_cable():
+    # The control for the test above: the caveat belongs to the missing link alone.
+    outcome = apply(ROUTED, Runner(), Reader([adapter(**CARRIED)]), attempts=2)
+    assert outcome.ok is True
+    assert outcome.message == "Ustawiono 192.168.11.2 /24"
+    assert "kabel" not in outcome.message
+
+
+def test_a_wrong_address_outranks_a_card_that_never_left_dhcp():
+    # Not reachable outranks not durable. The address is the thing the operator came
+    # for, and a card on the wrong one does not work at all.
+    reader = Reader([adapter(**LEASING | {"addresses": (("10.0.0.9", 24),)})])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert "Karta ma 10.0.0.9 /24" in outcome.message
+    assert "DHCP" not in outcome.message
+
+
+def test_a_card_that_never_left_dhcp_outranks_its_gateway_and_its_servers():
+    # While the flag is on, a lease can replace the gateway and the servers at will, so
+    # neither is worth reporting as the problem.
+    for spoiled in ({"gateways": ()}, {"dns": ()}):
+        reader = Reader([adapter(**LEASING | spoiled)])
+        outcome = apply(ROUTED, Runner(), reader, attempts=2)
+        assert outcome.message == "Adres ustawiony, ale karta nadal jest klientem DHCP", spoiled
+
+
+def test_the_flag_does_not_swallow_a_real_failure_on_a_cableless_card():
+    # The other side of the same gate. With no cable the flag says nothing, so a gateway
+    # that never landed is still the thing to report.
+    reader = Reader([adapter(**LEASING | {"connected": False, "gateways": ()})])
+    outcome = apply(ROUTED, Runner(), reader, attempts=2)
+    assert outcome.ok is False
+    assert "brama: brak zamiast 192.168.11.1" in outcome.message
+
+
 def test_real_netsh_output_is_decoded_as_utf_8():
     """The bytes in NETSH_REFUSAL are what netsh really emitted, not what we assumed.
 
