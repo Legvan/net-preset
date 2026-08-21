@@ -12,6 +12,7 @@ from net_preset.app import (
     ADDRESS_ROW,
     CABLE_IN,
     CABLE_OUT,
+    CHEVRON,
     CONTENT_WIDTH,
     CURRENT_ROWS,
     DHCP_CLIENT,
@@ -30,6 +31,7 @@ from net_preset.app import (
     NOT_APPLICABLE,
     NOT_ELEVATED,
     NOTHING,
+    PADDING,
     READY,
     STATIC,
     STATUS_LINES,
@@ -753,7 +755,7 @@ def test_the_last_card_leaving_keeps_its_name_for_when_it_comes_back(tmp_path, m
     cards.extend([adapter(), adapter("{BBBB}", "Ethernet 2")])
     window.on_tick()
     assert window.adapter.guid == "{BBBB}"
-    assert window.adapter_picker.cget("text") == "Ethernet 2   ▾"
+    assert window.adapter_picker.cget("text") == f"Ethernet 2{CHEVRON}"
 
 
 @windowed
@@ -892,7 +894,27 @@ def test_the_remembered_adapter_is_the_one_that_opens(tmp_path, make_app):
     save_adapter_choice("{BBBB}", tmp_path / "settings.json")
     window = make_app([adapter(), adapter("{BBBB}", "Ethernet 2")])
     assert window.adapter.guid == "{BBBB}"
-    assert window.adapter_picker.cget("text") == "Ethernet 2   ▾"
+    assert window.adapter_picker.cget("text") == f"Ethernet 2{CHEVRON}"
+
+
+@windowed
+def test_a_renamed_connection_cannot_widen_the_window_either(make_app):
+    # The picker is only shown with two cards in the machine, and it is as wide as
+    # the name on it: 120 characters took the window to 964 pixels before the name
+    # was cut. A connection can be renamed to anything, and this window cannot be
+    # dragged back.
+    cards = [adapter(), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards)
+    window.update_idletasks()
+    at_rest = window.winfo_reqwidth()
+
+    cards[0] = adapter(name="Z" * 120)
+    window.on_tick()
+    window.update_idletasks()
+
+    assert window.winfo_reqwidth() == at_rest == CONTENT_WIDTH + 2 * PADDING
+    assert window.adapter_picker.cget("text").endswith(f"…{CHEVRON}")
+    assert window.adapter_row.winfo_reqwidth() <= CONTENT_WIDTH
 
 
 @windowed

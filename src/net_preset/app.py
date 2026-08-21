@@ -111,11 +111,16 @@ STATUS_GAP = 8
 LABEL_PADDING = 4
 STATUS_WIDTH = CONTENT_WIDTH - LABEL_PADDING
 
-# The block: the gap between a caption and the value it belongs to, and the gap
-# between one row and the next. Rows sit close together on purpose — six of them
-# are a table of one card's settings, not six unrelated lines.
+# The gap between a caption and the thing it labels — the block's values and the
+# adapter picker alike — and the gap between one row of the block and the next.
+# Rows sit close together on purpose: six of them are a table of one card's
+# settings, not six unrelated lines.
 CAPTION_GAP = 12
 CURRENT_ROW_GAP = 2
+
+# The picker's own drop-down mark, kept out of the name so that the name can be
+# cut without taking it off.
+CHEVRON = "   ▾"
 
 # When to stop waiting for the worker and give the window back. An honest apply
 # can take three netsh calls that each spend their whole budget plus the
@@ -713,11 +718,13 @@ class Application(tk.Tk):
         showing the card's old settings at the exact moment they were changing.
         """
         name = self.adapter.name if self.adapter is not None else NOT_APPLICABLE
-        # The chevron is part of the label. Dropdown.TMenubutton has no arrow
-        # element of its own: clam's combobox keeps a light grey fill behind its
-        # arrow that no styling reaches, so the theme dropped the element rather
-        # than the colour.
-        self.adapter_picker.configure(text=f"{name}   ▾")
+        # The chevron is part of the label, and is put back on after the cut so
+        # that a name too long to show still has one. Dropdown.TMenubutton has no
+        # arrow element of its own: clam's combobox keeps a light grey fill behind
+        # its arrow that no styling reaches, so the theme dropped the element
+        # rather than the colour.
+        cut = fit(name, self.measure, self.name_width, lines=1)
+        self.adapter_picker.configure(text=f"{cut}{CHEVRON}")
         for caption, reader in CURRENT_ROWS:
             self.current[caption].configure(
                 text=fit(reader(self.adapter), self.value_measure, self.value_width, lines=1)
@@ -772,7 +779,8 @@ class Application(tk.Tk):
         """
         self.adapter_row = ttk.Frame(frame)
         self.adapter_row.grid(row=row, column=0, sticky="ew")
-        ttk.Label(self.adapter_row, text="Karta", style="Secondary.TLabel").pack(side="left")
+        caption = ttk.Label(self.adapter_row, text="Karta", style="Secondary.TLabel")
+        caption.pack(side="left")
 
         self.adapter_picker = ttk.Menubutton(
             self.adapter_row, style="Dropdown.TMenubutton", direction="below"
@@ -782,8 +790,25 @@ class Application(tk.Tk):
         # since the window did is in the list the operator is looking at.
         self.adapter_menu.configure(postcommand=self._fill_adapter_menu)
         self.adapter_picker["menu"] = self.adapter_menu
-        self.adapter_picker.pack(side="left", padx=(12, 0))
+        self.adapter_picker.pack(side="left", padx=(CAPTION_GAP, 0))
         self._fill_adapter_menu()
+
+        # What a name may measure before the picker takes the window with it. A
+        # connection can be renamed to anything a technician likes and the row is
+        # as wide as the widest thing in it, so a name in the hundreds of
+        # characters is a window nobody can drag back — measured on this machine at
+        # 964 pixels for a name of 120. Taken off the picker while it is still
+        # empty, so the padding and border ttk draws round the label are in the
+        # number rather than guessed at. The menu behind it still carries every
+        # name in full: a posted menu is a window of its own and may be as wide as
+        # it likes.
+        self.name_width = (
+            CONTENT_WIDTH
+            - caption.winfo_reqwidth()
+            - CAPTION_GAP
+            - self.adapter_picker.winfo_reqwidth()
+            - self.measure(CHEVRON)
+        )
 
         # Only under something. A rule at the top of a window with nothing above
         # it separates one thing from the title bar.
