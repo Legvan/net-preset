@@ -67,13 +67,14 @@ SAVE_FAILED = "Nie udało się zapisać listy ustawień"
 APPLY_FAILED = "Nie udało się zmienić ustawień"
 
 # The current-state block, and the words it has for the several kinds of nothing.
+# All but one: `brak`, for a card carrying none of something, is `NOTHING` in
+# `apply`, where the status line needed it first, and `servers_text` carries it
+# into the gateway and DNS rows. It is an answer rather than a gap — an isolated
+# controller subnet has no gateway, and that is the normal case here.
 NO_CARD = "brak karty"
 NO_ADDRESS = "brak adresu"
 NO_LEASE = "DHCP, brak dzierżawy"
-# A card carrying none of something is an answer rather than a gap — an isolated
-# controller subnet has no gateway, and that is the normal case here. The word for
-# it and the function that writes a list of addresses down both live in `apply`,
-# where the status line needed them first; `servers_text` carries both into the rows.
+
 # What a row says when there is no card for it to be about. The same mark the
 # picker puts where the card's name would go, because it is the same fact, and
 # saying "brak karty" six times over would read as six separate failures.
