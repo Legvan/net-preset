@@ -133,8 +133,29 @@ alternate DNS may all be left empty — an empty gateway means the card gets no 
 route, which is the normal case on an isolated controller subnet. An alternate DNS with no
 primary is refused; there is no index 2 without an index 1.
 
-The `Teraz` line shows what the card is actually carrying, refreshed every two seconds,
-independently of anything you have pressed.
+### What the card is carrying
+
+Under the buttons, six rows say what the card is actually carrying. They are read off the
+card every two seconds, independently of anything you have pressed, and they are never the
+profile that was last applied:
+
+| Row | What it says |
+|---|---|
+| `Teraz` | The address with its prefix length. `brak adresu` when the card has none, `brak karty` when there is no card at all. |
+| `Maska` | That address's mask, in the dotted form `DODAJ` asks for rather than the prefix length the card reports. |
+| `Brama` | The default gateways, in the order the card lists them, or `brak`. |
+| `DNS` | The name servers, in the order the card lists them, or `brak`. |
+| `Tryb` | `statyczny`, or `DHCP` while the card is a DHCP client — and `DHCP, brak dzierżawy` when it is one that has fallen back to a `169.254` address because no server answered. |
+| `Łącze` | `kabel podłączony` or `kabel odłączony`. |
+
+`Tryb` and `Łącze` are the pair to know about before
+[configuring with the cable out](#configuring-with-the-cable-out): between them they are
+what shows a switch out of DHCP finishing, which no address can.
+
+The column holds forty-five characters, and anything past that is cut with an ellipsis
+rather than allowed to widen a window that cannot be dragged back. Two name servers —
+all `USTAW` ever writes — always fit, and so do four ordinary ones handed out by a DHCP
+server. Five do not, and neither would three of the widest addresses IPv4 has.
 
 ### What USTAW checks
 
@@ -167,8 +188,9 @@ Pressing `USTAW` with no cable writes the address, the mask, the gateway and bot
 servers to the card straight away. All of it. The one step Windows holds back is finishing
 the switch out of DHCP — it waits for a link. So while the cable is out, the card carries
 your static address *alongside* a `169.254.x.x` self-assigned one, and everything still
-calls it a DHCP client: `ipconfig` and `netsh` report `DHCP enabled: Yes`, and the registry
-has `EnableDHCP = 1`. That is normal, and it is not a fault.
+calls it a DHCP client: `ipconfig` and `netsh` report `DHCP enabled: Yes`, the registry has
+`EnableDHCP = 1`, and net-preset's own `Tryb` row says `DHCP` beside the static address it
+just wrote. That is normal, and it is not a fault.
 
 net-preset says so rather than pretending otherwise:
 
@@ -186,16 +208,18 @@ Three things worth knowing:
 
 - **The status line does not update itself.** Not this message and not any other: it
   records what was true when it was written, and nothing re-checks it. So it goes on saying
-  `— czekam na kabel` after you plug in. The `Teraz` line above it does refresh, but it
-  renders an address and never the DHCP flag, so it looks the same before and after the
-  cable — it will not tell you the switch finished. Pressing `USTAW` on the same profile
-  once the cable is in is the only thing that re-reports the flag, and it is safe to do.
+  `— czekam na kabel` after you plug in. **The rows above it do**, and they are where you
+  watch the switch finish. With the cable out they read `Tryb: DHCP` and
+  `Łącze: kabel odłączony` beside your static address; a couple of seconds after the cable
+  goes in they read `Tryb: statyczny` and `Łącze: kabel podłączony`, with nothing pressed.
+  Pressing `USTAW` on the same profile is still safe, and is what puts the plain
+  `Ustawiono …` on the status line to match.
 - **Do not read `DHCP enabled: Yes` with the cable out as a failure.** It is the deferred
   step and it clears itself.
 - While that flag is still set, nothing stops a DHCP server on the site network from
   answering before Windows commits the switch. This has not been seen happening and the
-  program does not claim it cannot. If it did, the `Teraz` line would show the leased
-  address within a couple of seconds.
+  program does not claim it cannot. If it did, the rows would show it within a couple of
+  seconds: a leased address on `Teraz`, and a gateway and name servers nobody asked for.
 
 ## Where the settings live
 
@@ -258,8 +282,10 @@ would notice the two drifting apart.
   unknown driver should not make a card invisible that Windows shows. On a machine running
   Hyper-V, VMware, VirtualBox or TAP-Windows, their adapters may therefore be listed. Not
   measured; there was no such machine to hand.
-- **The verification cannot see what it did not ask for.** A gateway or DNS server put
-  there by something else is not reported.
+- **The verification cannot see what it did not ask for.** `USTAW`'s answer compares the
+  card against the profile and says nothing about a gateway or a DNS server put there by
+  something else. The six rows do show it — they report the card, not the request — so it
+  is visible in the window even where the status line has no opinion on it.
 - **Exercised on one machine and one card.** Every measurement in this file was taken on
   a single Windows 11 laptop with one Ethernet adapter. A second make of card, a docking
   station, a USB adapter, a machine with two cards in it — none of them have been tried;
@@ -270,7 +296,10 @@ would notice the two drifting apart.
 Reads go through `GetAdaptersAddresses` in `iphlpapi`, bound with `ctypes`. One call
 returns the friendly name, the GUID, the interface type, the link state, the addresses with
 their prefix lengths, the gateways, the DNS servers and the DHCP flag, without starting a
-process — which is what lets the `Teraz` line refresh on a timer without stuttering.
+process — which is what lets the six rows refresh on a timer without stuttering. Every one
+of those but the GUID and the interface type is on the window. The refresh was measured on
+the development machine at 2.8 ms, the API call and the registry lookup that separates a
+real card from a Bluetooth PAN adapter together, which is what two seconds is affordable at.
 
 Writes go through `netsh`, one invocation per operation, arguments passed as a list and
 never through a shell, so a connection name containing spaces or Polish characters
