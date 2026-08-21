@@ -31,7 +31,6 @@ from net_preset.app import (
     NO_LEASE,
     NOT_APPLICABLE,
     NOT_ELEVATED,
-    NOTHING,
     PADDING,
     READY,
     STATIC,
@@ -46,7 +45,7 @@ from net_preset.app import (
     mask_text,
     mode_text,
 )
-from net_preset.apply import Outcome
+from net_preset.apply import NOTHING, Outcome
 from net_preset.dialog import DialogResult
 from net_preset.profile import Profile
 from net_preset.settings import save_adapter_choice

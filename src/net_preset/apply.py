@@ -37,8 +37,10 @@ _NO_ANSWER_CODE = -1
 
 _UNREADABLE = "Nie udało się odczytać stanu karty"
 
-# What an empty list of gateways or servers is called when the status line names one.
-_NOTHING = "brak"
+# What an empty list of gateways or servers is called. Not private and not only the
+# status line's: the window's block names the same two lists a row apart, and a card
+# with no gateway has to read the same way whichever line the operator is looking at.
+NOTHING = "brak"
 
 # A command netsh would not carry out, and the same thing once the address has gone
 # through: the first command of every run is the one that moves the address.
@@ -411,10 +413,10 @@ def _static_mismatch(state: AdapterState, profile: Profile) -> Outcome:
         return Outcome(False, _STILL_DHCP)
 
     if not _gateway_matches(state, profile):
-        have, want = _servers_text(state.gateways), _servers_text(_wanted_gateways(profile))
+        have, want = servers_text(state.gateways), servers_text(_wanted_gateways(profile))
         return Outcome(False, f"Adres ustawiony, ale brama: {have} zamiast {want}")
 
-    have, want = _servers_text(state.dns), _servers_text(_wanted_dns(profile))
+    have, want = servers_text(state.dns), servers_text(_wanted_dns(profile))
     return Outcome(False, f"Adres ustawiony, ale DNS: {have} zamiast {want}")
 
 
@@ -423,9 +425,15 @@ def _wanted_gateways(profile: Profile) -> tuple[str, ...]:
     return (profile.gateway,) if profile.gateway else ()
 
 
-def _servers_text(servers: Sequence[str]) -> str:
-    """A list of addresses as the status line names it, or a word for an empty one."""
-    return ", ".join(servers) if servers else _NOTHING
+def servers_text(servers: Sequence[str]) -> str:
+    """A list of addresses as this program writes one down, or a word for an empty list.
+
+    Shared with the window rather than copied into it. The status line's answer to
+    USTAW and the block's *Brama* and *DNS* rows sit inches apart and describe the same
+    two lists, so a separator changed in one place and not the other would have them
+    disagreeing about a card neither of them got wrong.
+    """
+    return ", ".join(servers) if servers else NOTHING
 
 
 def _address_text(state: AdapterState) -> str | None:

@@ -37,6 +37,7 @@ from net_preset.apply import (
     POLL_SECONDS,
     Outcome,
     apply_profile,
+    servers_text,
 )
 from net_preset.dialog import ProfileDialog
 from net_preset.elevation import is_elevated
@@ -69,9 +70,10 @@ APPLY_FAILED = "Nie udało się zmienić ustawień"
 NO_CARD = "brak karty"
 NO_ADDRESS = "brak adresu"
 NO_LEASE = "DHCP, brak dzierżawy"
-# A card that carries none of something, which is an answer rather than a gap: an
-# isolated controller subnet has no gateway, and that is the normal case here.
-NOTHING = "brak"
+# A card carrying none of something is an answer rather than a gap — an isolated
+# controller subnet has no gateway, and that is the normal case here. The word for
+# it and the function that writes a list of addresses down both live in `apply`,
+# where the status line needed them first; `servers_text` carries both into the rows.
 # What a row says when there is no card for it to be about. The same mark the
 # picker puts where the card's name would go, because it is the same fact, and
 # saying "brak karty" six times over would read as six separate failures.
@@ -169,7 +171,7 @@ def mask_text(adapter: AdapterState | None) -> str:
 
 def gateway_text(adapter: AdapterState | None) -> str:
     """The default gateways the card carries, in the order it lists them."""
-    return NOT_APPLICABLE if adapter is None else _servers(adapter.gateways)
+    return NOT_APPLICABLE if adapter is None else servers_text(adapter.gateways)
 
 
 def dns_text(adapter: AdapterState | None) -> str:
@@ -179,12 +181,7 @@ def dns_text(adapter: AdapterState | None) -> str:
     index 1 first, so a pair the right way round and a pair the wrong way round
     are different configurations that would otherwise look identical here.
     """
-    return NOT_APPLICABLE if adapter is None else _servers(adapter.dns)
-
-
-def _servers(addresses: Sequence[str]) -> str:
-    """A list of addresses as a row names it, or the word for an empty one."""
-    return ", ".join(addresses) if addresses else NOTHING
+    return NOT_APPLICABLE if adapter is None else servers_text(adapter.dns)
 
 
 def mode_text(adapter: AdapterState | None) -> str:
