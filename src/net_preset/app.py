@@ -411,7 +411,7 @@ class Application(tk.Tk):
         The worker holds the card and the profile it was given, so moving either
         mid-apply is safe — but the answer, when it lands, is about what was
         chosen when USTAW was pressed, and it would arrive under a highlighted
-        row, a picker and a *Teraz* line naming something else. The highlight is
+        row, a picker and a block of rows naming something else. The highlight is
         what an operator reads to know which profile is on the card, so a success
         line for ROGER sitting under a highlighted BIURO is a wrong answer to the
         question they are actually asking.
@@ -669,7 +669,7 @@ class Application(tk.Tk):
 
         It is ranked by what stops the window working, and a card appearing or
         disappearing moves the top of that ranking. Without this, a window opened
-        with no card goes on saying so while *Teraz* names an address and USTAW
+        with no card goes on saying so while the block names an address and USTAW
         is live, and a window opened with one says nothing at all when it goes.
 
         Only that one fact is watched, and only while nothing is in flight. The
