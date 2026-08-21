@@ -83,6 +83,23 @@ def prefix_length(mask: str) -> int | None:
     return 32 - inverted.bit_length()
 
 
+def subnet_mask(prefix: int) -> str | None:
+    """Return the dotted mask a prefix length stands for, or None when it is not one.
+
+    The inverse of `prefix_length`, and beside it because they are one idea read in
+    two directions: the form takes a mask and the commands need a prefix, while the
+    adapter reports a prefix and the operator reads a mask.
+
+    Only 0 to 32 are prefix lengths, and the guard is not decoration: `_mask_bits`
+    raises on anything above 32, Python refusing to shift by a negative count, and
+    answers a negative prefix with 0.0.0.0 as though it had been given a /0.
+    """
+    if not 0 <= prefix <= 32:
+        return None
+    bits = _mask_bits(prefix)
+    return ".".join(str(bits >> shift & 0xFF) for shift in (24, 16, 8, 0))
+
+
 def _mask_bits(prefix: int) -> int:
     """The mask for a prefix length, as a 32-bit integer."""
     return (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF

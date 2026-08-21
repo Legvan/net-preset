@@ -6,6 +6,7 @@ from net_preset.profile import (
     Profile,
     parse_ipv4,
     prefix_length,
+    subnet_mask,
     validate,
 )
 
@@ -72,6 +73,34 @@ def test_prefix_length_counts_leading_ones(mask, expected):
 @pytest.mark.parametrize("mask", ["255.255.0.255", "255.0.255.0", "0.0.0.1", "nonsense"])
 def test_prefix_length_rejects_non_contiguous_masks(mask):
     assert prefix_length(mask) is None
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        (0, "0.0.0.0"),
+        (1, "128.0.0.0"),
+        (8, "255.0.0.0"),
+        (16, "255.255.0.0"),
+        (24, "255.255.255.0"),
+        (25, "255.255.255.128"),
+        (30, "255.255.255.252"),
+        (32, "255.255.255.255"),
+    ],
+)
+def test_subnet_mask_spells_a_prefix_length_out(prefix, expected):
+    assert subnet_mask(prefix) == expected
+
+
+@pytest.mark.parametrize("prefix", [-1, 33, 64])
+def test_subnet_mask_refuses_what_is_not_a_prefix_length(prefix):
+    # 33 is what raises inside _mask_bits; -1 is what it answers wrongly.
+    assert subnet_mask(prefix) is None
+
+
+@pytest.mark.parametrize("prefix", range(33))
+def test_subnet_mask_and_prefix_length_undo_each_other(prefix):
+    assert prefix_length(subnet_mask(prefix)) == prefix
 
 
 def test_a_minimal_profile_validates():
