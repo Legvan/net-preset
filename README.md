@@ -141,21 +141,25 @@ profile that was last applied:
 
 | Row | What it says |
 |---|---|
-| `Teraz` | The address with its prefix length. `brak adresu` when the card has none, `brak karty` when there is no card at all. |
+| `Teraz` | The address with its prefix length, or `brak adresu` when the card has none. |
 | `Maska` | That address's mask, in the dotted form `DODAJ` asks for rather than the prefix length the card reports. |
 | `Brama` | The default gateways, in the order the card lists them, or `brak`. |
 | `DNS` | The name servers, in the order the card lists them, or `brak`. |
 | `Tryb` | `statyczny`, or `DHCP` while the card is a DHCP client — and `DHCP, brak dzierżawy` when it is one that has fallen back to a `169.254` address because no server answered. |
 | `Łącze` | `kabel podłączony` or `kabel odłączony`. |
 
+With no card in the machine at all, `Teraz` says `brak karty` and the other five rows
+say `—`: the fact is stated once, on the row with the room for it, and the rest are
+visibly not about anything. The status line says it too, in red.
+
 `Tryb` and `Łącze` are the pair to know about before
 [configuring with the cable out](#configuring-with-the-cable-out): between them they are
 what shows a switch out of DHCP finishing, which no address can.
 
 The column holds forty-five characters, and anything past that is cut with an ellipsis
-rather than allowed to widen a window that cannot be dragged back. Two name servers —
-all `USTAW` ever writes — always fit, and so do four ordinary ones handed out by a DHCP
-server. Five do not, and neither would three of the widest addresses IPv4 has.
+rather than allowed to widen a window that cannot be dragged back. It is a rule about
+characters and not about how many servers a card was handed: two name servers, all
+`USTAW` ever writes, cannot reach it whatever they are.
 
 ### What USTAW checks
 
