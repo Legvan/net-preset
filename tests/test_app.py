@@ -595,6 +595,42 @@ def test_two_name_servers_are_shown_whole_because_that_is_what_ustaw_writes(make
     assert shown(window)[DNS_ROW] == "255.255.255.255, 255.255.255.254"
 
 
+# What the README publishes about this column: it holds forty-five characters, and
+# anything past that is cut with an ellipsis. A number a README states and no test
+# holds to is one that quietly stops being true.
+PUBLISHED_CHARACTERS = 45
+
+
+@windowed
+def test_the_column_holds_the_characters_the_readme_publishes(make_app):
+    """The other side of that budget, which everything above it leaves open.
+
+    Every test on this column so far stops it growing. Nothing stopped it
+    shrinking: the everyday case above is two name servers, thirty-two
+    characters, so the column could lose five characters -- forty pixels -- with
+    the suite still green and the README still promising forty-five.
+
+    Asked in characters because that is how the README states it, and answered
+    from the widest character the block can ever show rather than from a pixel
+    count nobody can re-derive. So it stays the right question if the font
+    changes or the content width does: what it pins is the published promise, not
+    the 362 pixels that happen to keep it here.
+    """
+    window = make_app([adapter()])
+    # Everything a value can be made of: an address and its prefix, the words the
+    # rows have for a card's state, and the ellipsis `fit` leaves on what it cut.
+    # No space -- `fit` breaks lines on those, so a column of them would measure
+    # the wrapping rather than the width.
+    words = (NO_CARD, NO_ADDRESS, NO_LEASE, NOTHING, NOT_APPLICABLE)
+    states = (DHCP_CLIENT, STATIC, CABLE_IN, CABLE_OUT)
+    ink = sorted(set("0123456789./,…" + "".join(words + states)) - {" "})
+    widest = max(ink, key=window.value_measure)
+
+    full = widest * PUBLISHED_CHARACTERS
+    # The call the window makes on every tick, at the width it makes it with.
+    assert fit(full, window.value_measure, window.value_width, lines=1) == full
+
+
 @windowed
 def test_an_adapter_and_a_token_are_what_applying_needs(make_app):
     window = make_app([adapter()])
