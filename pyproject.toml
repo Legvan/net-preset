@@ -1,6 +1,6 @@
 [project]
 name = "net-preset"
-version = "0.1.0"
+version = "0.2.0"
 description = "Named IPv4 profiles for a Windows Ethernet adapter"
 readme = "README.md"
 license = "MIT"

@@ -29,7 +29,7 @@
 ; features and in its own uninstall entry for the rest of its life. build.ps1
 ; catches that afterwards, by reading the version back out of the compiled file
 ; and comparing it against pyproject.toml -- but only afterwards. Bump both.
-#define AppVersion "0.1.0"
+#define AppVersion "0.2.0"
 #define AppPublisher "Legvan"
 #define AppExeName "net-preset.exe"
 #define AppURL "https://github.com/Legvan/net-preset"
