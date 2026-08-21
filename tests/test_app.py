@@ -439,6 +439,25 @@ def shown(window):
 
 
 @windowed
+def test_the_rows_run_down_the_window_in_the_order_the_table_gives_them(make_app):
+    # What the card has, then what it is. The README documents them in this order
+    # and the builder takes it from the table, so nothing else settles it.
+    window = make_app([adapter()])
+    placed = sorted(
+        (int(window.current[caption].grid_info()["row"]), caption)
+        for caption, _reader in CURRENT_ROWS
+    )
+    assert [caption for _line, caption in placed] == [
+        ADDRESS_ROW,
+        MASK_ROW,
+        GATEWAY_ROW,
+        DNS_ROW,
+        MODE_ROW,
+        LINK_ROW,
+    ]
+
+
+@windowed
 def test_the_block_shows_every_setting_the_card_carries(make_app):
     window = make_app(
         [
