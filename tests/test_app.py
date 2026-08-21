@@ -12,6 +12,7 @@ from net_preset.app import (
     ADDRESS_ROW,
     CABLE_IN,
     CABLE_OUT,
+    CAPTION_GAP,
     CHEVRON,
     CONTENT_WIDTH,
     CURRENT_ROWS,
@@ -570,6 +571,21 @@ def test_a_card_carrying_something_long_does_not_widen_the_window(make_app, card
         value = window.current[caption]
         assert value.winfo_reqwidth() <= window.value_width + LABEL_PADDING
         assert "\n" not in value.cget("text")
+
+
+@windowed
+def test_the_value_column_leaves_room_for_the_padding_ttk_adds(make_app):
+    """A value that exactly filled the column still has to fit inside it.
+
+    ttk asks for four pixels more than the text measures, so without that term the
+    column is four pixels wider than the room it has. No rendering shows it going
+    missing -- 362 px and 366 px hold the same forty-five Consolas characters -- so
+    the arithmetic is what there is to pin.
+    """
+    window = make_app([adapter()])
+    block = window.current[ADDRESS_ROW].master
+    widest_caption = max(label.winfo_reqwidth() for label in block.grid_slaves(column=0))
+    assert widest_caption + CAPTION_GAP + window.value_width + LABEL_PADDING <= CONTENT_WIDTH
 
 
 @windowed
