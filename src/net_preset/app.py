@@ -40,7 +40,7 @@ from net_preset.apply import (
 )
 from net_preset.dialog import ProfileDialog
 from net_preset.elevation import is_elevated
-from net_preset.profile import Profile
+from net_preset.profile import Profile, subnet_mask
 from net_preset.settings import load_adapter_choice, save_adapter_choice, settings_path
 from net_preset.store import load_profiles, profiles_path, save_profiles
 
@@ -65,10 +65,29 @@ NO_ANSWER = "Brak odpowiedzi — polecenie może wciąż działać w tle"
 SAVE_FAILED = "Nie udało się zapisać listy ustawień"
 APPLY_FAILED = "Nie udało się zmienić ustawień"
 
-# The current-state line.
+# The current-state block, and the words it has for the several kinds of nothing.
 NO_CARD = "brak karty"
 NO_ADDRESS = "brak adresu"
 NO_LEASE = "DHCP, brak dzierżawy"
+# A card that carries none of something, which is an answer rather than a gap: an
+# isolated controller subnet has no gateway, and that is the normal case here.
+NOTHING = "brak"
+# What a row says when there is no card for it to be about. The same mark the
+# picker puts where the card's name would go, because it is the same fact, and
+# saying "brak karty" six times over would read as six separate failures.
+NOT_APPLICABLE = "—"
+DHCP_CLIENT = "DHCP"
+STATIC = "statyczny"
+CABLE_IN = "kabel podłączony"
+CABLE_OUT = "kabel odłączony"
+
+# The captions down the left of the block.
+ADDRESS_ROW = "Teraz"
+MASK_ROW = "Maska"
+GATEWAY_ROW = "Brama"
+DNS_ROW = "DNS"
+MODE_ROW = "Tryb"
+LINK_ROW = "Łącze"
 
 LIST_HEIGHT = 8
 REFRESH_MS = 2000
@@ -92,6 +111,12 @@ STATUS_GAP = 8
 LABEL_PADDING = 4
 STATUS_WIDTH = CONTENT_WIDTH - LABEL_PADDING
 
+# The block: the gap between a caption and the value it belongs to, and the gap
+# between one row and the next. Rows sit close together on purpose — six of them
+# are a table of one card's settings, not six unrelated lines.
+CAPTION_GAP = 12
+CURRENT_ROW_GAP = 2
+
 # When to stop waiting for the worker and give the window back. An honest apply
 # can take three netsh calls that each spend their whole budget plus the
 # read-back poll, so anything shorter would cut off a slow success; past that,
@@ -105,20 +130,102 @@ def list_entries(profiles: Sequence[Profile]) -> list[str]:
     return [DHCP_LABEL, *(profile.label for profile in profiles)]
 
 
-def state_text(adapter: AdapterState | None) -> str:
-    """What the *Teraz* line says about *adapter* as it stands.
+def address_text(adapter: AdapterState | None) -> str:
+    """The address the card carries, with its prefix length.
 
-    The APIPA case is named rather than shown. A 169.254 address is Windows
-    saying no DHCP server answered, and "DHCP, brak dzierżawy" is that in words;
-    printing the address instead would have the operator reading a number that
-    means the opposite of a working link.
+    A 169.254 address is now shown rather than named, which is the reverse of what
+    this row used to do. It answered "DHCP, brak dzierżawy" in place of the number,
+    because a number that means the opposite of a working link is worse than a
+    sentence — and that sentence has not been dropped, it has moved one row down to
+    `mode_text`, where the mode is the subject and where it also has the flag to
+    judge. With the mode and the link stated a row apart, the operator cannot read
+    a self-assigned address as a working one, and can see which one the card took.
     """
     if adapter is None:
         return NO_CARD
-    if adapter.apipa:
-        return NO_LEASE
     primary = adapter.primary
     return NO_ADDRESS if primary is None else f"{primary[0]} /{primary[1]}"
+
+
+def mask_text(adapter: AdapterState | None) -> str:
+    """The mask of the address above, dotted, which is the form a technician thinks in.
+
+    Derived rather than read: the API reports a prefix length and nothing else. So
+    there is nothing to show when there is no address to derive it from, and
+    nothing when the length is not one a mask exists for — a card is free to report
+    anything in that byte and this row will not invent a mask for it.
+    """
+    primary = None if adapter is None else adapter.primary
+    if primary is None:
+        return NOT_APPLICABLE
+    mask = subnet_mask(primary[1])
+    return NOT_APPLICABLE if mask is None else mask
+
+
+def gateway_text(adapter: AdapterState | None) -> str:
+    """The default gateways the card carries, in the order it lists them."""
+    return NOT_APPLICABLE if adapter is None else _servers(adapter.gateways)
+
+
+def dns_text(adapter: AdapterState | None) -> str:
+    """The name servers the card carries, in the order it lists them.
+
+    The order is half the value. netsh sets them by index and the resolver asks
+    index 1 first, so a pair the right way round and a pair the wrong way round
+    are different configurations that would otherwise look identical here.
+    """
+    return NOT_APPLICABLE if adapter is None else _servers(adapter.dns)
+
+
+def _servers(addresses: Sequence[str]) -> str:
+    """A list of addresses as a row names it, or the word for an empty one."""
+    return ", ".join(addresses) if addresses else NOTHING
+
+
+def mode_text(adapter: AdapterState | None) -> str:
+    """Whether the card is a DHCP client or was configured by hand.
+
+    This is the row the window was missing. Windows defers the switch out of DHCP
+    until a cable goes in, and an address cannot show that: the card carries the
+    static one before and after. This row changes when the switch finishes, so the
+    operator sees it happen instead of pressing USTAW again to be told.
+
+    The APIPA case is named here rather than shown as an address, and it is asked
+    of the flag as well as of the address. A card put on a 169.254 address by hand
+    is not waiting for a lease it never asked for, and saying it was would send
+    somebody looking for a DHCP server that has nothing to do with it.
+    """
+    if adapter is None:
+        return NOT_APPLICABLE
+    if not adapter.dhcp:
+        return STATIC
+    return NO_LEASE if adapter.apipa else DHCP_CLIENT
+
+
+def link_text(adapter: AdapterState | None) -> str:
+    """Whether there is a cable in the card.
+
+    Read together with the row above it: DHCP with the cable out is the switch
+    Windows is holding back, and DHCP with the cable in is a card that never left
+    DHCP at all. One of those is worth waiting for and the other is worth acting
+    on, and neither row says which on its own.
+    """
+    if adapter is None:
+        return NOT_APPLICABLE
+    return CABLE_IN if adapter.connected else CABLE_OUT
+
+
+# The block, top to bottom: each caption with the function that reads its value off
+# the adapter. One table, so the set of rows and their order are settled in a single
+# place — the window builds from it and fills from it.
+CURRENT_ROWS: tuple[tuple[str, Callable[[AdapterState | None], str]], ...] = (
+    (ADDRESS_ROW, address_text),
+    (MASK_ROW, mask_text),
+    (GATEWAY_ROW, gateway_text),
+    (DNS_ROW, dns_text),
+    (MODE_ROW, mode_text),
+    (LINK_ROW, link_text),
+)
 
 
 def fit(text: str, measure: Measure, width: int, lines: int = STATUS_LINES) -> str:
@@ -224,8 +331,11 @@ class Application(tk.Tk):
         self.worker: threading.Thread | None = None
         self.attempt = 0
         self.watchdog: str | None = None
-        # The status line wraps itself, against the font it is drawn in.
+        # The status line wraps itself, against the font it is drawn in. The
+        # block's values are cut against theirs, which is the other font in the
+        # window: they are monospaced and the status line is not.
         self.measure: Measure = tkfont.Font(root=self, font=theme.BODY_FONT).measure
+        self.value_measure: Measure = tkfont.Font(root=self, font=theme.VALUE_FONT).measure
 
         self._build()
         self.refresh_list()
@@ -271,9 +381,10 @@ class Application(tk.Tk):
     def refresh_current(self) -> None:
         """Re-read the adapters and show what the chosen one is carrying now.
 
-        This is the whole point of the *Teraz* line: the effect of USTAW shows up
-        here without the operator opening anything, and so does a cable pulled out
-        of the card while the window sits there.
+        This is the whole point of the block under the buttons: the effect of USTAW
+        shows up there without the operator opening anything, and so do a cable
+        pulled out of the card while the window sits there and the switch out of
+        DHCP that Windows finishes on its own once one goes back in.
 
         The whole set is re-read, not one card's state, so everything the window
         says about which card it is using settles in one place: which card that
@@ -592,14 +703,25 @@ class Application(tk.Tk):
         )
 
     def _show_state(self) -> None:
-        """Show the adapter in use and what it is carrying."""
-        name = self.adapter.name if self.adapter is not None else "—"
+        """Show the adapter in use and every value it is carrying.
+
+        Not gated on `busy`, and that is the decision. The list, the buttons and
+        the picker are all frozen while a worker runs, so that nothing moves under
+        the answer the operator is waiting for — but this block is the one thing in
+        the window whose whole job is to be true right now. netsh can spend the
+        better part of a minute, and a readout that went stale for it would be
+        showing the card's old settings at the exact moment they were changing.
+        """
+        name = self.adapter.name if self.adapter is not None else NOT_APPLICABLE
         # The chevron is part of the label. Dropdown.TMenubutton has no arrow
         # element of its own: clam's combobox keeps a light grey fill behind its
         # arrow that no styling reaches, so the theme dropped the element rather
         # than the colour.
         self.adapter_picker.configure(text=f"{name}   ▾")
-        self.current.configure(text=state_text(self.adapter))
+        for caption, reader in CURRENT_ROWS:
+            self.current[caption].configure(
+                text=fit(reader(self.adapter), self.value_measure, self.value_width, lines=1)
+            )
 
     # -- building it ---------------------------------------------------------------
 
@@ -608,7 +730,7 @@ class Application(tk.Tk):
         frame.pack(fill="both", expand=True)
         # One column, held at a width that no message can change. Every row that
         # has two ends is a frame of its own, so the status line wrapping cannot
-        # move the *Teraz* value around.
+        # move the block's values around.
         frame.columnconfigure(0, weight=1, minsize=CONTENT_WIDTH)
 
         self._build_adapter_row(frame, row=0, separator_row=1)
@@ -763,13 +885,45 @@ class Application(tk.Tk):
         self.apply_button.grid(row=0, column=3)
 
     def _build_current(self, frame: ttk.Frame, *, row: int) -> None:
-        current_row = ttk.Frame(frame)
-        current_row.grid(row=row, column=0, sticky="ew")
-        current_row.columnconfigure(1, weight=1)
-        ttk.Label(current_row, text="Teraz", style="Secondary.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        # Monospaced, through Value.TLabel: the operator compares this against an
-        # address they typed, digit by digit.
-        self.current = ttk.Label(current_row, style="Value.TLabel", anchor="e")
-        self.current.grid(row=0, column=1, sticky="e")
+        """What the card is carrying, one labelled row per fact.
+
+        Always visible, with no toggle and no second window. This is a field tool:
+        the operator is at a cabinet with the laptop on one arm, and a value behind
+        a click is a value nobody reads.
+
+        The mask is here as well as the prefix length because a technician thinks
+        in masks — the prefix is what the API reports and what USTAW's answer
+        quotes, and the two are worth having side by side rather than converted in
+        somebody's head at the wrong moment.
+
+        Every value is cut to `value_width` before it is shown, and that is what
+        keeps the window the size it is. The status line has the same problem and
+        answers it the same way; the difference is that a message can wrap onto a
+        second reserved line, while a value that does not fit would take the window
+        wider instead of taller — three name servers is all it takes, and the
+        window cannot be resized back.
+
+        The width is measured off the built captions rather than added up from the
+        font, for the same reason the status line's height is: a ttk label asks for
+        four pixels more than its text measures, and a sum that leaves them out is
+        a window that grows the first time a card carries something long.
+        """
+        block = ttk.Frame(frame)
+        block.grid(row=row, column=0, sticky="ew")
+        block.columnconfigure(1, weight=1)
+
+        self.current: dict[str, ttk.Label] = {}
+        captions: list[ttk.Label] = []
+        for line, (caption, _reader) in enumerate(CURRENT_ROWS):
+            pady = (CURRENT_ROW_GAP if line else 0, 0)
+            label = ttk.Label(block, text=caption, style="Secondary.TLabel")
+            label.grid(row=line, column=0, sticky="w", pady=pady)
+            captions.append(label)
+            # Monospaced, through Value.TLabel: the operator compares these
+            # against an address they typed, digit by digit.
+            value = ttk.Label(block, style="Value.TLabel", anchor="e")
+            value.grid(row=line, column=1, sticky="e", padx=(CAPTION_GAP, 0), pady=pady)
+            self.current[caption] = value
+
+        widest_caption = max(label.winfo_reqwidth() for label in captions)
+        self.value_width = CONTENT_WIDTH - widest_caption - CAPTION_GAP - LABEL_PADDING

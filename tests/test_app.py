@@ -9,20 +9,39 @@ from conftest import new_root
 
 from net_preset.adapters import AdapterState
 from net_preset.app import (
+    ADDRESS_ROW,
+    CABLE_IN,
+    CABLE_OUT,
     CONTENT_WIDTH,
+    CURRENT_ROWS,
+    DHCP_CLIENT,
     DHCP_LABEL,
+    DNS_ROW,
+    GATEWAY_ROW,
+    LABEL_PADDING,
+    LINK_ROW,
+    MASK_ROW,
+    MODE_ROW,
     NO_ADAPTER,
     NO_ADDRESS,
     NO_ANSWER,
     NO_CARD,
     NO_LEASE,
+    NOT_APPLICABLE,
     NOT_ELEVATED,
+    NOTHING,
     READY,
+    STATIC,
     STATUS_LINES,
     Application,
+    address_text,
+    dns_text,
     fit,
+    gateway_text,
+    link_text,
     list_entries,
-    state_text,
+    mask_text,
+    mode_text,
 )
 from net_preset.apply import Outcome
 from net_preset.dialog import DialogResult
@@ -127,6 +146,8 @@ def adapter(
     addresses=(("192.168.11.9", 24),),
     connected=True,
     dhcp=False,
+    gateways=(),
+    dns=(),
 ):
     """One fabricated adapter, shaped the way GetAdaptersAddresses reports them."""
     return AdapterState(
@@ -138,8 +159,8 @@ def adapter(
         connected=connected,
         dhcp=dhcp,
         addresses=tuple(addresses),
-        gateways=(),
-        dns=(),
+        gateways=tuple(gateways),
+        dns=tuple(dns),
     )
 
 
@@ -251,20 +272,109 @@ def make_app(tmp_path, monkeypatch):
             window.destroy()
 
 
-def test_the_current_line_names_the_address():
-    assert state_text(adapter(addresses=(("10.0.0.5", 16),))) == "10.0.0.5 /16"
+def test_the_address_row_names_the_address():
+    assert address_text(adapter(addresses=(("10.0.0.5", 16),))) == "10.0.0.5 /16"
 
 
-def test_the_current_line_says_when_there_is_no_card():
-    assert state_text(None) == NO_CARD
+def test_the_address_row_says_when_there_is_no_card():
+    assert address_text(None) == NO_CARD
 
 
-def test_the_current_line_says_when_the_card_has_no_address():
-    assert state_text(adapter(addresses=())) == NO_ADDRESS
+def test_the_address_row_says_when_the_card_has_no_address():
+    assert address_text(adapter(addresses=())) == NO_ADDRESS
 
 
-def test_the_current_line_calls_an_apipa_address_a_missing_lease():
-    assert state_text(adapter(addresses=(("169.254.7.7", 16),), dhcp=True)) == NO_LEASE
+def test_the_mask_row_spells_the_prefix_out():
+    assert mask_text(adapter(addresses=(("10.0.0.5", 16),))) == "255.255.0.0"
+
+
+def test_the_mask_row_follows_the_address_that_is_shown():
+    # primary skips the APIPA address, and the mask has to describe the same one.
+    card = adapter(addresses=(("169.254.7.7", 16), ("192.168.11.2", 24)))
+    assert address_text(card) == "192.168.11.2 /24"
+    assert mask_text(card) == "255.255.255.0"
+
+
+@pytest.mark.parametrize("card", [None, adapter(addresses=())])
+def test_the_mask_row_has_nothing_to_derive_without_an_address(card):
+    assert mask_text(card) == NOT_APPLICABLE
+
+
+def test_a_prefix_length_no_mask_answers_to_is_not_guessed_at():
+    # A byte the API is free to put anything in; 33 is not a prefix length.
+    assert mask_text(adapter(addresses=(("10.0.0.5", 33),))) == NOT_APPLICABLE
+
+
+def test_the_gateway_row_lists_them_in_the_order_the_card_carries_them():
+    assert gateway_text(adapter(gateways=("192.168.11.1", "192.168.11.9"))) == (
+        "192.168.11.1, 192.168.11.9"
+    )
+
+
+def test_the_dns_row_lists_them_in_the_order_the_card_carries_them():
+    # The order is the configuration: index 1 is asked first.
+    assert dns_text(adapter(dns=("8.8.8.8", "1.1.1.1"))) == "8.8.8.8, 1.1.1.1"
+    assert dns_text(adapter(dns=("1.1.1.1", "8.8.8.8"))) == "1.1.1.1, 8.8.8.8"
+
+
+@pytest.mark.parametrize("reader", [gateway_text, dns_text])
+def test_a_card_carrying_none_of_them_says_so_in_a_word(reader):
+    assert reader(adapter()) == NOTHING
+
+
+def test_the_mode_row_names_a_dhcp_client():
+    assert mode_text(adapter(dhcp=True)) == DHCP_CLIENT
+
+
+def test_the_mode_row_names_a_card_configured_by_hand():
+    assert mode_text(adapter(dhcp=False)) == STATIC
+
+
+def test_the_mode_row_calls_an_apipa_address_a_missing_lease():
+    card = adapter(addresses=(("169.254.7.7", 16),), dhcp=True)
+    assert mode_text(card) == NO_LEASE
+    # And the address itself is shown rather than swallowed by that sentence.
+    assert address_text(card) == "169.254.7.7 /16"
+
+
+def test_a_card_put_on_an_apipa_address_by_hand_is_not_waiting_for_a_lease():
+    assert mode_text(adapter(addresses=(("169.254.7.7", 16),), dhcp=False)) == STATIC
+
+
+def test_the_link_row_says_whether_there_is_a_cable_in_it():
+    assert link_text(adapter(connected=True)) == CABLE_IN
+    assert link_text(adapter(connected=False)) == CABLE_OUT
+
+
+def test_the_deferred_switch_out_of_dhcp_is_visible_row_by_row():
+    # The README's case: USTAW with no cable writes everything but the flag, and
+    # Windows clears the flag when a cable goes in. The address cannot show that
+    # -- it is the same before and after -- so the mode and the link rows do.
+    stored = adapter(
+        addresses=(("192.168.11.2", 24), ("169.254.3.4", 16)), dhcp=True, connected=False
+    )
+    finished = adapter(addresses=(("192.168.11.2", 24),), dhcp=False, connected=True)
+
+    assert address_text(stored) == address_text(finished) == "192.168.11.2 /24"
+    assert (mode_text(stored), link_text(stored)) == (DHCP_CLIENT, CABLE_OUT)
+    assert (mode_text(finished), link_text(finished)) == (STATIC, CABLE_IN)
+
+
+def test_every_row_says_something_when_there_is_no_card():
+    values = [reader(None) for _caption, reader in CURRENT_ROWS]
+    assert values[0] == NO_CARD  # said once, on the row that has the room for it
+    assert values[1:] == [NOT_APPLICABLE] * (len(CURRENT_ROWS) - 1)
+
+
+def test_no_row_is_ever_blank():
+    cards = [
+        None,
+        adapter(),
+        adapter(addresses=()),
+        adapter(addresses=(("169.254.7.7", 16),), dhcp=True, connected=False),
+    ]
+    for card in cards:
+        assert all(reader(card).strip() for _caption, reader in CURRENT_ROWS)
 
 
 # -- fitting a message to the status line --------------------------------------
@@ -318,7 +428,66 @@ def test_a_width_narrower_than_a_glyph_still_terminates():
 @windowed
 def test_the_current_line_shows_the_live_adapter(make_app):
     window = make_app([adapter(addresses=(("10.0.0.5", 8),))])
-    assert window.current.cget("text") == "10.0.0.5 /8"
+    assert window.current[ADDRESS_ROW].cget("text") == "10.0.0.5 /8"
+
+
+def shown(window):
+    """Every row of the block as the window is drawing it, caption to value."""
+    return {caption: window.current[caption].cget("text") for caption, _ in CURRENT_ROWS}
+
+
+@windowed
+def test_the_block_shows_every_setting_the_card_carries(make_app):
+    window = make_app(
+        [
+            adapter(
+                addresses=(("192.168.11.2", 24),),
+                gateways=("192.168.11.1",),
+                dns=("192.168.11.1", "8.8.8.8"),
+            )
+        ]
+    )
+    assert shown(window) == {
+        ADDRESS_ROW: "192.168.11.2 /24",
+        MASK_ROW: "255.255.255.0",
+        GATEWAY_ROW: "192.168.11.1",
+        DNS_ROW: "192.168.11.1, 8.8.8.8",
+        MODE_ROW: STATIC,
+        LINK_ROW: CABLE_IN,
+    }
+
+
+@windowed
+def test_the_block_follows_the_card_on_the_tick(make_app):
+    # No button was pressed: this is the deferred switch finishing on its own, and
+    # the two rows that change are the two the window never used to show.
+    cards = [adapter(addresses=(("192.168.11.2", 24),), dhcp=True, connected=False)]
+    window = make_app(cards)
+    assert shown(window)[MODE_ROW] == DHCP_CLIENT
+    assert shown(window)[LINK_ROW] == CABLE_OUT
+
+    cards[0] = adapter(addresses=(("192.168.11.2", 24),), dhcp=False, connected=True)
+    window.on_tick()
+
+    assert shown(window)[MODE_ROW] == STATIC
+    assert shown(window)[LINK_ROW] == CABLE_IN
+    assert shown(window)[ADDRESS_ROW] == "192.168.11.2 /24"  # unchanged, as it would be
+
+
+@windowed
+def test_the_block_says_the_card_has_gone_and_leaves_no_stale_values(make_app):
+    cards = [adapter(gateways=("192.168.11.1",), dns=("8.8.8.8",))]
+    window = make_app(cards)
+    cards.clear()
+    window.on_tick()
+    assert shown(window) == {
+        ADDRESS_ROW: NO_CARD,
+        MASK_ROW: NOT_APPLICABLE,
+        GATEWAY_ROW: NOT_APPLICABLE,
+        DNS_ROW: NOT_APPLICABLE,
+        MODE_ROW: NOT_APPLICABLE,
+        LINK_ROW: NOT_APPLICABLE,
+    }
 
 
 # Every one of these grew the window when the status line was cut by character
@@ -348,6 +517,46 @@ def test_a_message_that_used_to_grow_the_window_no_longer_does(make_app, message
     assert (window.winfo_reqwidth(), window.winfo_reqheight()) == at_rest
     assert window.status.winfo_reqwidth() <= CONTENT_WIDTH
     assert window.status.cget("text").count("\n") + 1 <= STATUS_LINES
+
+
+# The same standard applied to the block, whose values are not fixed-width either.
+# Nothing here wraps: a value that does not fit takes the window sideways, and the
+# operator has no way of dragging it back. The last of these is the one a card can
+# really carry -- a DHCP server is free to hand out three or four name servers, and
+# the API reports every one of them.
+WIDE_CARDS = [
+    adapter(addresses=(("255.255.255.255", 32),)),
+    adapter(gateways=("255.255.255.255", "255.255.255.254", "255.255.255.253")),
+    adapter(dns=("255.255.255.255",) * 8),
+    adapter(dns=("192.168.11.1", "8.8.8.8", "8.8.4.4", "1.1.1.1")),
+]
+
+
+@windowed
+@pytest.mark.parametrize("card", WIDE_CARDS)
+def test_a_card_carrying_something_long_does_not_widen_the_window(make_app, card):
+    cards = [adapter()]
+    window = make_app(cards)
+    window.update_idletasks()
+    at_rest = (window.winfo_reqwidth(), window.winfo_reqheight())
+
+    cards[0] = card
+    window.on_tick()
+    window.update_idletasks()
+
+    assert (window.winfo_reqwidth(), window.winfo_reqheight()) == at_rest
+    for caption, _reader in CURRENT_ROWS:
+        value = window.current[caption]
+        assert value.winfo_reqwidth() <= window.value_width + LABEL_PADDING
+        assert "\n" not in value.cget("text")
+
+
+@windowed
+def test_two_name_servers_are_shown_whole_because_that_is_what_ustaw_writes(make_app):
+    # The cut above is a backstop, not the everyday case: a profile has a primary
+    # and an alternate, and the widest pair either of them can be still fits.
+    window = make_app([adapter(dns=("255.255.255.255", "255.255.255.254"))])
+    assert shown(window)[DNS_ROW] == "255.255.255.255, 255.255.255.254"
 
 
 @windowed
@@ -613,6 +822,34 @@ def test_a_card_arriving_speaks_over_a_note_that_the_list_would_not_save(monkeyp
 
 
 @windowed
+def test_the_block_goes_on_telling_the_truth_while_an_apply_is_in_flight(make_app):
+    # Everything else freezes for the worker: the list, the three buttons and the
+    # picker. This does not, and it is the one thing that must not -- netsh can
+    # hold the window for the better part of a minute, and that is exactly when the
+    # card's settings are changing under it.
+    gate = threading.Event()
+    cards = [adapter(addresses=(("192.168.11.2", 24),), dhcp=True, connected=False)]
+    window = make_app(cards, applier=FakeApply(gate=gate))
+    seen = []
+
+    def disturb():
+        cards[0] = adapter(addresses=(("192.168.11.2", 24),), dhcp=False, connected=True)
+        window.on_tick()
+        seen.append((window.busy, shown(window)[MODE_ROW], shown(window)[LINK_ROW]))
+
+    window.after(0, window.on_apply)
+    window.after(10, disturb)
+    window.after(20, gate.set)
+    try:
+        pump(window, lambda: not window.busy)
+    finally:
+        gate.set()
+        window.worker.join(timeout=5)
+
+    assert seen == [(True, STATIC, CABLE_IN)]
+
+
+@windowed
 def test_a_card_going_mid_apply_leaves_the_line_the_worker_was_given(make_app):
     # The tick runs all the way through an apply, and the line saying what is
     # being set is what the operator is waiting on. Announcing over it would take
@@ -647,7 +884,7 @@ def test_the_answer_outlives_a_card_that_went_while_it_was_being_fetched(make_ap
         gate.set()
         window.worker.join(timeout=5)
     assert window.status.cget("text") == "Karta ma 10.0.0.5 /24"
-    assert window.current.cget("text") == NO_CARD
+    assert window.current[ADDRESS_ROW].cget("text") == NO_CARD
 
 
 @windowed
@@ -1019,7 +1256,7 @@ def test_the_tick_takes_ustaw_away_when_the_card_goes(make_app):
     window.on_tick()
 
     assert str(window.apply_button.cget("state")) == "disabled"
-    assert window.current.cget("text") == NO_CARD
+    assert window.current[ADDRESS_ROW].cget("text") == NO_CARD
     assert window.ticker != scheduled  # and it comes round again
 
 

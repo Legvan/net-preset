@@ -382,7 +382,7 @@ def _static_mismatch(state: AdapterState, profile: Profile) -> Outcome:
     after it open by saying the address is set, so a card that is reachable but has no
     route, no name resolution or no static mode does not read as a card that never changed
     at all. What it has is named on both sides, and the address it settled on is not
-    repeated — the *Teraz* line directly above the status is already showing it.
+    repeated — the *Teraz* row of the block above the status is already showing it.
 
     The flag comes straight after the address and ahead of the other two, and the order is
     a ranking of what the operator cannot do. A wrong address is a card that is not
@@ -391,11 +391,14 @@ def _static_mismatch(state: AdapterState, profile: Profile) -> Outcome:
     outranks not durable — and while the flag is on, the gateway and the servers are not
     ours to judge either, which is why they wait behind it.
 
-    Its own line has to be read against the *Teraz* line above it, which shows an address
+    Its own line has to be read against the *Teraz* row above it, which shows an address
     without saying where it came from. "Karta ma X, nie Y" would be a lie here — X and Y
     are the same address — so the line says the address landed and names the one thing
-    that did not. It is only reachable on a connected card; on a disconnected one the flag
-    is not yet the card's answer, and `_report` has already called that a success.
+    that did not. The block's *Tryb* row says the same thing about the card as it stands;
+    this one is the answer to the button, and it is what says the flag was still set when
+    the attempt gave up rather than at whatever moment the last tick happened to read.
+    It is only reachable on a connected card; on a disconnected one the flag is not yet
+    the card's answer, and `_report` has already called that a success.
     """
     wanted = _request_text(profile)
     if not _address_matches(state, profile):
