@@ -937,6 +937,26 @@ def test_a_renamed_connection_cannot_widen_the_window_either(make_app):
 
 
 @windowed
+def test_a_cut_name_still_uses_the_row_it_was_given(make_app):
+    """The other half of that budget, which fitting alone does not cover.
+
+    A row that fits is also what you get by cutting every name to nothing, and the
+    picker really did throw 77 pixels away when its chrome was read off the empty
+    widget -- a Menubutton with no text on it asks for an empty-widget minimum
+    rather than for its padding and border. Nothing about the window's width could
+    show that, so the room left over is what says it.
+    """
+    cards = [adapter(name="Z" * 500), adapter("{BBBB}", "Ethernet 2")]
+    window = make_app(cards)
+    window.update_idletasks()
+
+    row = window.adapter_row.winfo_reqwidth()
+    assert row <= CONTENT_WIDTH
+    # Within one glyph of full: a name this long can only be stopped by the width.
+    assert CONTENT_WIDTH - row < window.measure("Z")
+
+
+@windowed
 def test_a_remembered_adapter_that_is_gone_falls_back_to_the_first(tmp_path, make_app):
     save_adapter_choice("{GONE}", tmp_path / "settings.json")
     window = make_app([adapter(), adapter("{BBBB}", "Ethernet 2")])

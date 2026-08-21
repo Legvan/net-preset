@@ -797,17 +797,22 @@ class Application(tk.Tk):
         # connection can be renamed to anything a technician likes and the row is
         # as wide as the widest thing in it, so a name in the hundreds of
         # characters is a window nobody can drag back — measured on this machine at
-        # 964 pixels for a name of 120. Taken off the picker while it is still
-        # empty, so the padding and border ttk draws round the label are in the
-        # number rather than guessed at. The menu behind it still carries every
-        # name in full: a posted menu is a window of its own and may be as wide as
-        # it likes.
+        # 964 pixels for a name of 120. The menu behind the picker still carries
+        # every name in full: a posted menu is a window of its own and may be as
+        # wide as it likes.
+        #
+        # The chrome is what the picker asks for beyond the text on it, and it has
+        # to be measured with text on it. A Menubutton with none reports an
+        # empty-widget minimum instead — 103 pixels here, against a real padding
+        # and border of 26 — so reading the empty widget is the one moment the
+        # number is not chrome. Taking it for chrome leaves 77 pixels of the row
+        # unused and cuts every name eleven characters early. The probe is wide
+        # enough that a pixel of rounding in it does not matter.
+        probe = "M" * 20
+        self.adapter_picker.configure(text=probe)
+        chrome = self.adapter_picker.winfo_reqwidth() - self.measure(probe)
         self.name_width = (
-            CONTENT_WIDTH
-            - caption.winfo_reqwidth()
-            - CAPTION_GAP
-            - self.adapter_picker.winfo_reqwidth()
-            - self.measure(CHEVRON)
+            CONTENT_WIDTH - caption.winfo_reqwidth() - CAPTION_GAP - chrome - self.measure(CHEVRON)
         )
 
         # Only under something. A rule at the top of a window with nothing above
