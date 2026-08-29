@@ -14,9 +14,15 @@ name: build
 # says plainly that every measurement in it was taken on one Windows 11 laptop
 # with one Ethernet adapter. A runner is the second machine this program has ever
 # run on: a different Windows build, a virtual network adapter, a registry nobody
-# here curated, and an interpreter installed from scratch. Three tests read the
-# live IP stack and the live registry rather than a fixture, and this is the only
-# place they meet anything but the development machine.
+# here curated, and an interpreter installed from scratch. Six tests reach past
+# their fixtures and ask the live machine -- three read the IP stack and the
+# registry (tests\test_adapters.py), one asks the live token
+# (tests\test_elevation.py), and two confirm on a second machine that the path
+# netsh is resolved from really is Windows' own directory and really holds netsh
+# (tests\test_system.py, tests\test_commands.py). Those last two are the most
+# security-relevant thing a runner buys this branch: until now the fix for the
+# privilege escalation described in SECURITY.md had only ever been checked
+# against one machine's System32.
 #
 # Releases are not published from here. A run's artifacts are downloadable from
 # the run, which is what the argument above needs; attaching them to a release is
@@ -103,22 +109,63 @@ jobs:
         run: |
           $results = [xml](Get-Content junit.xml -Raw)
           $suite = $results.testsuites.testsuite
-          "$($suite.tests) tests, $($suite.skipped) skipped, $($suite.failures) failed, $($suite.errors) errored."
+          "$($suite.tests) collected, $($suite.failures) failed, $($suite.errors) errored."
 
-          $expected = 'OEM page'
-          $skipped = @($results.SelectNodes('//testcase/skipped'))
+          # A floor, not a count. pytest exits 0 on a run that collected a
+          # fraction of the suite -- a bad testpaths, a collection error in one
+          # module, a -k left in by accident -- and the step above would not
+          # notice. The suite is 414 today; raise this deliberately if the suite
+          # ever shrinks below it on purpose, because that is the decision this
+          # number exists to force.
+          $atLeast = 400
+          if ([int]$suite.tests -lt $atLeast) {
+            Write-Host "::error::only $($suite.tests) tests were collected; this suite has at least $atLeast. A run that collected a fraction of the suite and went green is not a green run."
+            exit 1
+          }
+
+          # Reasons this runner is allowed to skip for, as data. Adding one is an
+          # entry in this list with a comment saying why, which is a decision
+          # someone has to write down; widening the match to cover a second
+          # reason is not, and the shape should not invite it.
+          $expected = @(
+            'OEM page'   # test_apply.py pins the cp852 fallback; the runner is en-US
+          )
+
+          # type="pytest.skip" only. pytest files an xfail as
+          # <skipped type="pytest.xfail"> and counts it in the suite's skipped
+          # attribute, so the first xfail anyone adds would otherwise turn this
+          # job red under a step name that describes something else entirely.
+          $skipped = @($results.SelectNodes('//testcase/skipped[@type="pytest.skip"]'))
           foreach ($node in $skipped) {
             $case = $node.ParentNode
             "  skipped: $($case.classname).$($case.name)"
             "           $($node.GetAttribute('message'))"
           }
 
-          $unexpected = @($skipped | Where-Object { $_.GetAttribute('message') -notlike "*$expected*" })
+          $unexpected = @()
+          foreach ($node in $skipped) {
+            $message = $node.GetAttribute('message')
+            $tolerated = $false
+            foreach ($reason in $expected) {
+              if ($message -like "*$reason*") { $tolerated = $true }
+            }
+            if (-not $tolerated) { $unexpected += $node }
+          }
           if ($unexpected.Count -gt 0) {
             Write-Host "::error::$($unexpected.Count) test(s) skipped for a reason this runner did not expect. A skipped window test is coverage this run lost, not coverage it did not need."
             exit 1
           }
-          "No unexpected skips."
+
+          # Each tolerated reason covers one test. More skips than reasons means
+          # one of those substrings is matching something it was not written for,
+          # which is the same failure as an untolerated skip wearing a familiar
+          # message.
+          if ($skipped.Count -gt $expected.Count) {
+            Write-Host "::error::$($skipped.Count) tests skipped against $($expected.Count) tolerated reason(s); a reason is matching more than the test it was written for."
+            exit 1
+          }
+
+          "$($suite.tests) collected, $($skipped.Count) skipped, all of them expected."
 
   build:
     needs: test
