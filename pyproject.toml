@@ -2,6 +2,10 @@
 name = "net-preset"
 version = "0.2.0"
 description = "Named IPv4 profiles for a Windows Ethernet adapter"
+# Read by packaging\net-preset.spec, which writes it into the executable's
+# version resource as CompanyName. Keep it saying the same thing as AppPublisher
+# in packaging\net-preset.iss.
+authors = [{ name = "Legvan" }]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

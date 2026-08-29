@@ -46,6 +46,17 @@
 # ruff: noqa: F821, UP009
 
 import os
+import tomllib
+
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo,
+    StringFileInfo,
+    StringStruct,
+    StringTable,
+    VarFileInfo,
+    VarStruct,
+    VSVersionInfo,
+)
 
 REPO = os.path.abspath(os.path.join(SPECPATH, '..'))
 SRC = os.path.join(REPO, 'src')
@@ -56,6 +67,111 @@ SRC = os.path.join(REPO, 'src')
 # shipped an icon nobody could reproduce would be the same kind of quiet
 # mistake as a stale AppVersion in the installer script.
 ICON = os.path.join(REPO, 'assets', 'net-preset.ico')
+
+# The name of the artifact, which build.ps1 and packaging\net-preset.iss both
+# spell out. Not read from pyproject.toml, deliberately: renaming the project
+# should not silently rename the deliverable out from under the two files that
+# name it.
+EXE_NAME = 'net-preset'
+
+
+# -- the version resource ------------------------------------------------------
+#
+# Without one, Properties -> Details on net-preset.exe is empty: no product
+# name, no version, no description, nobody's name on it.
+#
+# Every value below is read out of pyproject.toml and LICENSE rather than typed
+# here. That is not tidiness. packaging\net-preset.iss already has to name the
+# version a second time, and build.ps1 exists in part to read it back out of the
+# compiled installer and refuse a build where the two disagree; a third
+# hand-maintained copy would put back exactly the drift that check was written
+# to catch. A spec is Python and runs at build time, and tomllib is in the
+# standard library, so there is no reason to have one.
+
+
+def _project():
+    """The [project] table of pyproject.toml."""
+    with open(os.path.join(REPO, 'pyproject.toml'), 'rb') as handle:
+        return tomllib.load(handle)['project']
+
+
+def _numeric_version(version):
+    """pyproject's "0.2.0" as the four numbers a Windows version resource holds.
+
+    The resource has no room for anything but four 16-bit numbers, so a
+    pre-release suffix -- "0.2.0rc1" -- contributes its digits and loses the
+    rest. Nothing is lost overall: FileVersion and ProductVersion below are
+    strings and carry the version exactly as pyproject.toml writes it, and
+    those are what Explorer shows.
+
+    Anything that cannot be read as a number is raised rather than guessed at.
+    A version resource that quietly said 0.0.0.0 would be worse than no
+    version resource at all, because it would look like an answer.
+    """
+    parts = version.split('.')
+    if len(parts) > 4:
+        raise ValueError(f'version {version!r} has more parts than a version resource holds')
+    numbers = []
+    for part in parts:
+        digits = ''
+        for character in part:
+            if not character.isdigit():
+                break
+            digits += character
+        if not digits:
+            raise ValueError(f'version {version!r} has a part that starts with no digit: {part!r}')
+        number = int(digits)
+        if number > 0xFFFF:
+            raise ValueError(f'version {version!r} has a part too large for the resource: {part!r}')
+        numbers.append(number)
+    return tuple(numbers + [0] * (4 - len(numbers)))
+
+
+def _copyright():
+    """The copyright line LICENSE carries, so the executable cannot contradict it."""
+    with open(os.path.join(REPO, 'LICENSE'), encoding='utf-8') as handle:
+        for line in handle:
+            if line.startswith('Copyright'):
+                return line.strip()
+    raise ValueError('LICENSE has no line beginning "Copyright"')
+
+
+PROJECT = _project()
+VERSION = PROJECT['version']
+
+# 0409 is US English and 04B0 is 1200, the Unicode code page. The strings below
+# are English, matching the rest of the repository; the window's own text is
+# Polish and is not affected by anything here.
+#
+# One of these is more visible than the rest. FileDescription is what Windows
+# puts on the UAC prompt as the program name, and this executable raises one at
+# every launch by manifest, so it is the line the operator reads most often.
+VERSION_INFO = VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=_numeric_version(VERSION),
+        prodvers=_numeric_version(VERSION),
+    ),
+    kids=[
+        StringFileInfo(
+            [
+                StringTable(
+                    '040904B0',
+                    [
+                        StringStruct('CompanyName', PROJECT['authors'][0]['name']),
+                        StringStruct('FileDescription', PROJECT['description']),
+                        StringStruct('FileVersion', VERSION),
+                        StringStruct('InternalName', PROJECT['name']),
+                        StringStruct('LegalCopyright', _copyright()),
+                        StringStruct('OriginalFilename', EXE_NAME + '.exe'),
+                        StringStruct('ProductName', PROJECT['name']),
+                        StringStruct('ProductVersion', VERSION),
+                    ],
+                )
+            ]
+        ),
+        VarFileInfo([VarStruct('Translation', [0x0409, 1200])]),
+    ],
+)
 
 a = Analysis(
     [os.path.join(SRC, 'net_preset', '__main__.py')],
@@ -90,7 +206,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='net-preset',
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -112,6 +228,9 @@ exe = EXE(
     # the executable's resources, so Windows picks the size it wants rather
     # than scaling one; that is what the nine sizes in make_icon.py are for.
     icon=ICON,
+    # Built above, out of pyproject.toml and LICENSE. Without it Properties ->
+    # Details on the executable has nothing in it at all.
+    version=VERSION_INFO,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
