@@ -45,11 +45,13 @@ separates a real Ethernet card from a Bluetooth PAN adapter claiming to be one, 
 the desktop. Both keys are opened for reading. Nothing in `src\` calls `SetValueEx`,
 `CreateKey`, `DeleteKey` or `DeleteValue`.
 
-**The complete list of Windows APIs it calls** is seven, all of them `ctypes.windll` calls
-and all of them greppable in one line: `GetAdaptersAddresses` to read the adapters,
-`GetSystemDirectoryW` to find `netsh`, `GetOEMCP` to decode what `netsh` said,
-`IsUserAnAdmin` and `ShellExecuteW` to elevate a run from source, and `GetParent` with
-`DwmSetWindowAttribute` to make the title bar dark.
+**The complete list of Windows APIs it calls** is seven: `GetAdaptersAddresses` to read
+the adapters, `GetSystemDirectoryW` to find `netsh`, `GetOEMCP` to decode what `netsh`
+said, `IsUserAnAdmin` and `ShellExecuteW` to elevate a run from source, and `GetParent`
+with `DwmSetWindowAttribute` to make the title bar dark. Six of them are on a
+`ctypes.windll` line and `grep -rn "windll\."` over `src\` finds every one; the seventh,
+`DwmSetWindowAttribute`, is called through a local bound to `ctypes.windll.dwmapi` on the
+line above it in [`src/net_preset/theme.py`](src/net_preset/theme.py).
 
 **It writes two files, both under the operator's own profile.**
 
@@ -68,13 +70,25 @@ to be writable at run time.
 
 **No network access.** The program opens no sockets and contacts no server, at any point.
 There is no update check and no telemetry. Nothing under `src\` imports `socket`, `ssl`,
-`http`, `urllib` or their relatives; the only thing it ever starts is `netsh`.
+`http`, `urllib` or their relatives. The only other program it ever starts is `netsh` —
+the exception is itself, once, when a run from source has to be relaunched elevated.
 
-**No shell, ever.** Every command is built as a list of separate arguments and handed to
-`subprocess.run` with `shell=False` — the one `subprocess.run` in the program, in
-[`src/net_preset/apply.py`](src/net_preset/apply.py). Nothing is concatenated into a
-command line, there is no `os.system` and no `shell=True`, and an adapter name containing
-spaces or Polish characters survives intact because of it rather than in spite of it.
+**No shell, ever.** Every `netsh` invocation is built as a list of separate arguments and
+handed to `subprocess.run` with `shell=False` — the one `subprocess.run` in the program, in
+[`src/net_preset/apply.py`](src/net_preset/apply.py). Nothing that came out of a profile is
+concatenated into a command line, there is no `os.system` and no `shell=True`, and an
+adapter name containing spaces or Polish characters survives intact because of it rather
+than in spite of it.
+
+**One command line is built as a string, and it is the elevated relaunch.** `ShellExecuteW`
+takes its arguments as `lpParameters`, a single string, so there is no list form to hand it:
+[`src/net_preset/elevation.py`](src/net_preset/elevation.py) builds one with
+`subprocess.list2cmdline`, which applies Windows' own quoting rules and is the same function
+CPython's `subprocess` uses to build every command line it starts. What goes into it is this
+process's own `sys.argv[1:]`, and `__main__.py` parses no arguments at all — there is no
+option, no file path and no profile field on that line, and nothing a profile can reach.
+This is the most privileged path in the program, which is why it is set out here rather
+than left under a blanket claim.
 
 **No reaching for rights it was not given.** It asks once, through the two documented
 Windows mechanisms — a manifest when it is frozen, `ShellExecuteW` with `runas` when it is
@@ -82,8 +96,10 @@ not — and takes no for an answer. A declined prompt leaves it running unelevat
 `USTAW` disabled and a status line saying why. There is no second attempt, no scheduled
 task, no service, no startup entry and no COM elevation moniker.
 
-**No trust in what `netsh` says about itself.** `netsh` exits 0 on a command it did not
-understand, so no exit code is believed on its own: after the commands run, the adapter is
+**No trust in what `netsh` says about itself.** `netsh` exits 0 on an *argument* it did
+not understand, inside a subcommand it did: it prints a usage dump and reports success.
+(An unknown subcommand is different and exits 1 — measured, on `show`, which changes
+nothing.) So no exit code is believed on its own: after the commands run, the adapter is
 read back through `GetAdaptersAddresses` and compared field by field against what was
 asked for, and the status line reports the comparison rather than the commands. That is a
 correctness property first, but it is also what stops a substituted or broken `netsh` from
@@ -166,15 +182,33 @@ been altered since, SmartScreen and Smart App Control will treat each build on i
 merits, and the README records Smart App Control refusing one build and admitting the next
 from an unchanged script.
 
-What stands in for a signature, and it is not the same thing: every artifact is built by
+What stands in for a signature, from now on rather than retrospectively: every artifact
+built from this point is produced by
 [`.github/workflows/build.yml`](.github/workflows/build.yml) on a GitHub-hosted Windows
 runner from a commit in this repository, and the run's log records the SHA-256 of both
-files. A download can be checked against that log. It proves where a file came from; it
-does not prove the file reaching you is that one, which is what a signature would do.
+files, so a download can be checked against a run anyone can read.
 
-If you would rather not run an unsigned binary, run from source — `uv run net-preset` goes
-through a signed Python interpreter — or build it yourself with `.\build.ps1` and compare
-your hashes with the run's.
+**Anything published before that workflow existed has no run to check against.** 0.1.0,
+0.2.0 and 0.3.0 were all built on the maintainer's machine, and there is no log carrying
+their hashes — do not go looking for one. For those, building from source and comparing
+what you get is the only check there is.
+
+Even where there is a run, it is not what a signature does. It says where a file came from;
+it does not say that the file reaching you is that one.
+
+If you would rather not run an unsigned binary, run from source, or build it yourself
+with `.\build.ps1`. **Check which interpreter you are running through, though: not every
+CPython build is signed.** The installer from python.org is — `Get-AuthenticodeSignature`
+on its `python.exe` answers Valid, CN=Python Software Foundation — but the
+python-build-standalone distributions `uv` downloads are not, and `uv`'s default
+`python-preference` is `managed`, so on a machine with no suitable system Python
+`uv run net-preset` fetches an unsigned interpreter and goes through that. Both were
+measured. If a signature is what you are deciding on, install CPython 3.14 from
+python.org and check the one you actually have:
+
+```powershell
+Get-AuthenticodeSignature (Get-Command python).Source | Format-List Status, SignerCertificate
+```
 
 ## Scope
 
