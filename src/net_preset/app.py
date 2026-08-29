@@ -42,6 +42,7 @@ from net_preset.apply import (
 from net_preset.dialog import ProfileDialog
 from net_preset.elevation import is_elevated
 from net_preset.profile import Profile, subnet_mask
+from net_preset.resources import apply_icon
 from net_preset.settings import load_adapter_choice, save_adapter_choice, settings_path
 from net_preset.store import load_profiles, profiles_path, save_profiles
 
@@ -309,6 +310,13 @@ class Application(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(WINDOW_TITLE)
+        # Chrome, like the title, and said in the same breath. Tk's default is
+        # its own feather, which is the one thing on the window that announces
+        # a script before a word of it has been read. `apply_icon` answers
+        # whether it landed and nothing here asks: a missing decoration is not
+        # something to tell an operator about, and the status line under the
+        # buttons is for what happened to their card.
+        apply_icon(self)
         self.resizable(False, False)
         # Before any widget exists: the theme switches ttk to clam, and a widget
         # built under the native theme would keep it.

@@ -5,7 +5,7 @@ import time
 import tkinter as tk
 
 import pytest
-from conftest import new_root
+from conftest import first_root_icon, new_root
 
 from net_preset.adapters import AdapterState
 from net_preset.app import (
@@ -90,6 +90,23 @@ def app(tmp_path, monkeypatch):
 def test_the_window_opens_with_dhcp_selected(app):
     assert app.listbox.get(0) == DHCP_LABEL
     assert app.listbox.curselection() == (0,)
+
+
+@windowed
+def test_the_window_wears_the_icon_rather_than_tk_s_feather(tmp_path):
+    """What Windows has on the window, in the shape the operator gets it.
+
+    Run in a process of its own; tests/conftest.py explains why the first root
+    of a process is the only one this can be asked of. The icon Tk carries in
+    its own DLL is how a window with no icon of its own looks, so naming that
+    DLL is the failure.
+    """
+    handle, module, resource = first_root_icon(tmp_path)
+    assert handle != 0, "the window has no icon at all"
+    assert (module, resource) == ("", ""), (
+        f"the window is wearing an icon out of a library rather than a file: "
+        f"{resource!r} in {module!r}"
+    )
 
 
 @windowed

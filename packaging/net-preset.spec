@@ -61,7 +61,13 @@ a = Analysis(
     [os.path.join(SRC, 'net_preset', '__main__.py')],
     pathex=[SRC],
     binaries=[],
-    datas=[],
+    # The same icon again, this time as a file inside the bundle rather than a
+    # resource on the executable, because the two are read by different things.
+    # Windows reads the resource; Tk cannot -- `wm iconbitmap` wants a path to
+    # an .ico on disk -- so the window would keep its feather with only the
+    # resource present. Unpacked to the root of sys._MEIPASS, which is where
+    # src\net_preset\resources.py looks for it in a frozen run.
+    datas=[(ICON, '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
