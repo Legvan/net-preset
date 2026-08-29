@@ -1,4 +1,4 @@
-"""Draw the application icon and write assets/net-preset.ico.
+r"""Draw the application icon and write assets/net-preset.ico.
 
 This script is the source of the artwork, not a copy of it. Pillow will not load
 on the development machine -- Smart App Control blocks its DLL -- so the icon is
@@ -18,13 +18,20 @@ independent images, and this is what that is for.
 Run it after changing anything here:
 
     uv run python packaging/make_icon.py
+
+It takes an optional path to write to instead. build.ps1 passes one, under
+build\, so that it can redraw the icon and compare it against the committed
+file without dirtying the working tree on every build -- a generated asset can
+drift from its generator, and nothing else would notice.
 """
 
 from __future__ import annotations
 
 import math
 import struct
+import sys
 import zlib
+from collections.abc import Sequence
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -217,7 +224,13 @@ def dib(rows) -> bytes:
     return header + colour + b"\x00" * (mask_stride * height)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    """Draw the icon into the path named on the command line, or into TARGET."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if len(arguments) > 1:
+        raise SystemExit("usage: make_icon.py [output.ico]")
+    target = Path(arguments[0]) if arguments else TARGET
+
     images = {
         size: (png(draw(size)) if size >= 128 else dib(draw(size))) for size in SIZES
     }
@@ -233,14 +246,14 @@ def main() -> None:
         blobs.append(blob)
         offset += len(blob)
 
-    TARGET.parent.mkdir(parents=True, exist_ok=True)
-    with TARGET.open("wb") as handle:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("wb") as handle:
         handle.write(struct.pack("<HHH", 0, 1, len(images)))
         for entry in directory:
             handle.write(entry)
         for blob in blobs:
             handle.write(blob)
-    print(f"{TARGET}  {TARGET.stat().st_size} bytes  sizes {', '.join(map(str, SIZES))}")
+    print(f"{target}  {target.stat().st_size} bytes  sizes {', '.join(map(str, SIZES))}")
 
 
 if __name__ == "__main__":
