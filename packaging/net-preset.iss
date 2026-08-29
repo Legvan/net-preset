@@ -71,6 +71,18 @@ OutputBaseFilename={#AppName}-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; The installer's own icon: what Explorer draws on net-preset-setup.exe and
+; what its wizard wears in the taskbar and in Alt-Tab. Relative to this file,
+; which is how ISCC resolves a path that is not absolute.
+;
+; There is deliberately no IconFilename on any entry under [Icons] below. A
+; shortcut with none takes its icon from the file it points at, and all three
+; point at net-preset.exe, which carries the same artwork in its own resources
+; by way of icon= in packaging\net-preset.spec. UninstallDisplayIcon already
+; names that executable too, so the Apps & features entry is covered by the
+; same one line. Naming the .ico again here would add three more places to
+; keep in step and would put the icon in front of Windows twice.
+SetupIconFile=..\assets\net-preset.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName} {#AppVersion}

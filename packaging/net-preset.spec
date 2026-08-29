@@ -47,7 +47,15 @@
 
 import os
 
-SRC = os.path.abspath(os.path.join(SPECPATH, '..', 'src'))
+REPO = os.path.abspath(os.path.join(SPECPATH, '..'))
+SRC = os.path.join(REPO, 'src')
+
+# Drawn by packaging\make_icon.py, which build.ps1 re-runs into a scratch
+# directory and compares against this file before it packages anything: the
+# icon is generated, so it can drift from its generator, and a build that
+# shipped an icon nobody could reproduce would be the same kind of quiet
+# mistake as a stale AppVersion in the installer script.
+ICON = os.path.join(REPO, 'assets', 'net-preset.ico')
 
 a = Analysis(
     [os.path.join(SRC, 'net_preset', '__main__.py')],
@@ -93,6 +101,11 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
+    # The icon in Explorer, on the taskbar, in Alt-Tab and behind the
+    # installer's shortcuts. PyInstaller writes every entry of the .ico into
+    # the executable's resources, so Windows picks the size it wants rather
+    # than scaling one; that is what the nine sizes in make_icon.py are for.
+    icon=ICON,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
