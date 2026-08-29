@@ -83,8 +83,14 @@ beside it was admitted. That one build of `net-preset-setup.exe` was let through
 nothing about the next one. If a machine turns the installer away, reach for the bare
 executable rather than rebuilding, and for the source if it turns that away too.
 
-**The fix is code signing.** Until then, run from source: `uv run net-preset` goes through
-a signed Python interpreter, which Smart App Control does not treat this way.
+**The fix is code signing.** Until then, run from source: Smart App Control does not
+treat a signed interpreter this way. **Check that yours is one.** The CPython installer
+from python.org is signed by the Python Software Foundation; the python-build-standalone
+distributions `uv` downloads are not signed at all, and `uv`'s default
+`python-preference` is `managed`, so on a machine with no suitable system Python
+`uv run net-preset` fetches an unsigned interpreter and runs through that — which is
+the shape Smart App Control judges. Both were measured with
+`Get-AuthenticodeSignature`. Install CPython 3.14 from python.org and the check holds.
 
 Smart App Control has no per-application allowance, and turning it off cannot be undone
 without reinstalling Windows.
