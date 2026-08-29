@@ -143,9 +143,14 @@ VERSION = PROJECT['version']
 # are English, matching the rest of the repository; the window's own text is
 # Polish and is not affected by anything here.
 #
-# One of these is more visible than the rest. FileDescription is what Windows
-# puts on the UAC prompt as the program name, and this executable raises one at
-# every launch by manifest, so it is the line the operator reads most often.
+# FileDescription is the exception, and it is the project's name rather than
+# its description on purpose. Windows does not use that field as a description:
+# it is what the UAC prompt shows as the program name, and what Task Manager
+# puts in its Name column. This executable raises a UAC prompt at every launch
+# by manifest, so that string is the one the operator reads most often, and a
+# sentence of English in front of somebody using a Polish program is the wrong
+# thing to put there. The one-line description stays where it belongs, in
+# pyproject.toml, where hatchling writes it into the wheel's Summary.
 VERSION_INFO = VSVersionInfo(
     ffi=FixedFileInfo(
         filevers=_numeric_version(VERSION),
@@ -158,7 +163,7 @@ VERSION_INFO = VSVersionInfo(
                     '040904B0',
                     [
                         StringStruct('CompanyName', PROJECT['authors'][0]['name']),
-                        StringStruct('FileDescription', PROJECT['description']),
+                        StringStruct('FileDescription', PROJECT['name']),
                         StringStruct('FileVersion', VERSION),
                         StringStruct('InternalName', PROJECT['name']),
                         StringStruct('LegalCopyright', _copyright()),

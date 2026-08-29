@@ -141,9 +141,20 @@ def test_the_details_tab_is_filled_in_from_the_project(spec, project):
     said = fields(spec)
     assert said["ProductName"] == project["name"]
     assert said["InternalName"] == project["name"]
-    assert said["FileDescription"] == project["description"]
     assert said["CompanyName"] == project["authors"][0]["name"]
     assert said["OriginalFilename"] == "net-preset.exe"
+
+
+def test_the_uac_prompt_is_given_the_name_and_not_the_description(spec, project):
+    """FileDescription is not a description on Windows.
+
+    It is what the UAC prompt shows as the program name and what Task Manager
+    puts in its Name column, and this executable raises a prompt at every launch
+    by manifest. The project's one-line description is English and the operator's
+    program is Polish, so the name is what belongs there.
+    """
+    assert fields(spec)["FileDescription"] == project["name"]
+    assert fields(spec)["FileDescription"] != project["description"]
 
 
 def test_the_copyright_is_the_one_in_the_licence(spec):
