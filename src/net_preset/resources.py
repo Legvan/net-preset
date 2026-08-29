@@ -64,16 +64,25 @@ def icon_path() -> Path | None:
 def apply_icon(window: tk.Wm) -> bool:
     """Put the icon on *window* and on every window opened after it.
 
-    The `default` option is the whole point of the call. `wm iconbitmap` on its
-    own dresses one window; `wm iconbitmap -default` sets the icon Tk gives to
-    every toplevel created afterwards, which is how `dialog.ProfileDialog` comes
-    up wearing it without being told. On Windows it is also the option that
-    reaches the title bar rather than only the icon Alt-Tab shows.
+    The `default` option is the whole point of the call, and what it does on
+    Windows was measured rather than taken on trust. `wm iconbitmap` on its own
+    puts an icon on the one window it is given; `wm iconbitmap -default` puts it
+    on the Tk window class instead, so every toplevel made afterwards is drawn
+    with it without owning one. That is how `dialog.ProfileDialog` comes up
+    wearing the icon without being told about it.
+
+    Call this before the window has been round the event loop -- which is where
+    `app.Application.__init__` calls it -- and Tk keeps the icon until the
+    window's frame exists and applies it then. Measured: that holds for the
+    first root of a process, which is every run of the shipped program, and not
+    for a second one, where the same call at the same moment is dropped. The
+    fix is not to force the window through an update first: that maps it, and
+    an empty window would appear on screen before it had been built.
 
     Answers whether the icon landed, so a caller that wants to know can ask. The
     window itself does not: there is nothing useful to tell an operator about a
-    missing decoration, and the status line above the buttons is reserved for
-    things that happened to their network card.
+    missing decoration, and the status line at the foot of the window is for
+    things that happened to their card.
     """
     path = icon_path()
     if path is None:
