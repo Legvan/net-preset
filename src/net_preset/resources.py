@@ -53,12 +53,14 @@ def icon_path() -> Path | None:
     else:
         # .../src/net_preset/resources.py -> .../src/net_preset -> .../src -> repo
         candidate = Path(__file__).resolve().parents[2] / ASSETS / ICON_NAME
-    try:
-        return candidate if candidate.is_file() else None
-    except OSError:
-        # A path this process cannot even ask about -- a disconnected drive, a
-        # name the filesystem refuses. Still not worth taking the window down.
-        return None
+    # No guard around this, because there is nothing for one to catch. On the
+    # Python this project requires, `Path.is_file` is `os.path.isfile`, which
+    # swallows OSError and ValueError and answers False. Measured on 3.14, all
+    # False and none of them raising: a drive that is not there
+    # (Q:\gone\net-preset.ico), a host that does not answer
+    # (\\nosuchhost\share\icon.ico), a name with a null in it, and a path past
+    # the length limit. So the check is the guard.
+    return candidate if candidate.is_file() else None
 
 
 def apply_icon(window: tk.Wm) -> bool:
