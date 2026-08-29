@@ -206,17 +206,26 @@ def pump(window, until, timeout=5.0):
     through while the loop is actually running -- so a loop run in slices would
     drop the answer whenever it landed in a gap between two of them, and update()
     alone would never see it at all.
+
+    Returns whether the condition held, so a caller can tell what it was waiting
+    for happening from the deadline arriving. Nothing here fails on its own:
+    which of those two is a test failure depends on what was being waited for,
+    and only the caller knows.
     """
     deadline = time.monotonic() + timeout
+    held = False
 
     def check():
-        if until() or time.monotonic() >= deadline:
+        nonlocal held
+        held = bool(until())
+        if held or time.monotonic() >= deadline:
             window.quit()
         else:
             window.after(10, check)
 
     window.after(10, check)
     window.mainloop()
+    return held
 
 
 def apply_and_settle(window, timeout=5.0):
@@ -238,6 +247,19 @@ def apply_and_settle(window, timeout=5.0):
 
     `pressed` is in the condition because `not window.busy` is true before USTAW
     has been pressed at all, and waiting would otherwise end before it started.
+
+    And when the answer never arrives, this says so itself rather than letting
+    the test fail on whatever the status line still holds. That failure reads
+    `assert 'Ustawiam ...' == 'Ustawiono ...'`, which is indistinguishable from a
+    real regression in the status line and teaches whoever sees it to press the
+    re-run button instead of reading. It has been seen once, on a machine under
+    load, with the window's own watchdog at 73 s and this budget at 5 -- so the
+    watchdog cannot have been what ended it, and the 30 ms above is scheduled
+    before `mainloop()` starts, so the loop was demonstrably running. What is
+    left is the handoff described above going missing for a reason that
+    description does not cover. Naming it is not a fix and is not meant to be
+    one; it is the difference between a flake that can be investigated and a
+    flake that looks like a bug in the program.
     """
     pressed = []
 
@@ -246,7 +268,15 @@ def apply_and_settle(window, timeout=5.0):
         pressed.append(True)
 
     window.after(30, press)
-    pump(window, lambda: pressed and not window.busy, timeout)
+    if pump(window, lambda: pressed and not window.busy, timeout):
+        return
+    pytest.fail(
+        f"the worker's answer never reached the window within {timeout:g} s: "
+        f"pressed={bool(pressed)}, busy={window.busy}, "
+        f"status={window.status.cget('text')!r}. This is the lost cross-thread "
+        f"after(0, ...) that apply_and_settle's docstring describes, not a "
+        f"status-line regression -- read that before re-running."
+    )
 
 
 def fake_dialog(answer):
