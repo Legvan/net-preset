@@ -1,0 +1,14 @@
+# The icon is a byte-compared build gate. build.ps1 redraws assets\net-preset.ico
+# with packaging\make_icon.py and stops the build when the SHA-256 differs, and
+# .github\workflows\build.yml now runs that on a machine whose checkout nobody
+# here supervises. core.autocrlf is on for this author, so what actually lands in
+# a working tree is decided by git's own guess at whether a file is text. The
+# guess is right today -- an .ico is full of NUL bytes within the first few
+# hundred -- but nothing would notice it going wrong, and a single CRLF inserted
+# into a deflate stream fails the icon check with a message about make_icon.py,
+# which is the wrong place to look entirely.
+*.ico binary
+
+# The picture the README leads with. Same reason, and no gate to catch it: a
+# mangled PNG just stops rendering.
+*.png binary
