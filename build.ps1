@@ -103,26 +103,45 @@ function Write-Step { param([string]$T) Write-Host "`n==> $T" -ForegroundColor C
 function Write-Ok { param([string]$T) Write-Host "    OK  $T" -ForegroundColor Green }
 function Write-Fail { param([string]$T) Write-Host "    FAILED  $T" -ForegroundColor Red }
 
-function Get-DeclaredVersion {
+function Get-DeclaredValue {
     <#
-        The version pyproject.toml declares, which is the one every artifact of
-        this build has to agree with. Stops the script if there is none.
+        The first capture of $Pattern inside pyproject.toml's [project] table,
+        which is where every value the artifacts of this build have to agree
+        with is written down. Stops the script if there is none.
 
-        Anchored to the [project] table rather than taking the first
-        version = "..." in the file. [project] comes first today and is the only
-        table carrying that key, so the simpler read would work -- right up until
+        Anchored to the [project] table rather than matching anywhere in the
+        file. [project] comes first today and is the only table carrying either
+        of the keys read below, so the simpler read would work -- right up until
         a [tool.something] table with a version of its own is added above it, at
-        which point a check would compare against the wrong number and pass.
+        which point a check would compare against the wrong value and pass.
+
+        Line by line, so each pattern has to fit on one line. That is how both
+        of them are written today, and a value spread over several lines stops
+        the build here rather than being read wrongly.
     #>
-    param([string]$Path)
+    param([string]$Path, [string]$Pattern, [string]$What)
 
     $inProject = $false
     foreach ($line in Get-Content $Path) {
         if ($line -match '^\s*\[') { $inProject = $line -match '^\s*\[project\]\s*$'; continue }
-        if ($inProject -and $line -match '^\s*version\s*=\s*"([^"]+)"') { return $Matches[1] }
+        if ($inProject -and $line -match $Pattern) { return $Matches[1] }
     }
-    Write-Fail 'pyproject.toml has no version in its [project] table.'
+    Write-Fail "pyproject.toml has no $What in its [project] table."
     exit 1
+}
+
+function Get-DeclaredVersion {
+    param([string]$Path)
+    return Get-DeclaredValue $Path '^\s*version\s*=\s*"([^"]+)"' 'version'
+}
+
+function Get-DeclaredAuthor {
+    <#
+        The name packaging\net-preset.spec writes into the executable as
+        CompanyName, so that the installer can be held to the same one.
+    #>
+    param([string]$Path)
+    return Get-DeclaredValue $Path '^\s*authors\s*=.*?name\s*=\s*"([^"]+)"' 'authors entry'
 }
 
 function Get-LargestIcon {
@@ -373,7 +392,24 @@ try {
     if (-not (Test-Path $setup)) { Write-Fail "expected $setup, but it is not there."; exit 1 }
     Write-Ok "dist\net-preset-setup.exe ($([math]::Round((Get-Item $setup).Length / 1MB, 1)) MB)"
 
-    Write-Step 'Reading the version back out of the installer'
+    Write-Step 'Reading the icon and the version back out of the installer'
+
+    # The installer's own icon goes missing exactly as quietly as the
+    # executable's: drop SetupIconFile and Inno substitutes its built-in icon,
+    # the compile still succeeds, and nothing says so. This is the artifact the
+    # operator double-clicks first, so it is checked the same way -- the same
+    # 256 px entry, looked for in the same bytes.
+    #
+    # Inno stores the payload compressed, so a match here is the icon Inno put
+    # in the setup program's own resources and not the copy of net-preset.exe
+    # inside it.
+    $setupBinary = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($setup))
+    if ($setupBinary.IndexOf($icon.Data, [StringComparison]::Ordinal) -lt 0) {
+        Write-Fail "the installer does not carry the $($icon.Size) px entry of assets\net-preset.ico."
+        Write-Host '    Check SetupIconFile in packaging\net-preset.iss.' -ForegroundColor Red
+        exit 1
+    }
+    Write-Ok "the installer carries the icon (found its $($icon.Size) px entry)"
 
     # packaging\net-preset.iss carries the version a second time, because ISCC
     # cannot read pyproject.toml. Nothing makes the two agree, and a stale one is
@@ -385,14 +421,29 @@ try {
     # this one really is a second hand-maintained copy, and this is the only
     # thing that watches it.
     $declared = Get-DeclaredVersion (Join-Path $Repo 'pyproject.toml')
-    $stamped = (Get-Item $setup).VersionInfo.ProductVersion
-    if ($stamped) { $stamped = $stamped.Trim() }
+    $stampedInfo = (Get-Item $setup).VersionInfo
+    $stamped = "$($stampedInfo.ProductVersion)".Trim()
     if ($stamped -ne $declared) {
         Write-Fail "the installer says $stamped, pyproject.toml says $declared."
         Write-Host '    Bring AppVersion in packaging\net-preset.iss back in step.' -ForegroundColor Red
         exit 1
     }
     Write-Ok "the installer carries version $stamped"
+
+    # AppPublisher is the other hand-maintained copy in that file, and the same
+    # argument applies to it: ISCC cannot read pyproject.toml, so nothing makes
+    # the two agree. Inno documents AppPublisher as the default for
+    # VersionInfoCompany, which puts it in the compiled file's version resource
+    # beside the version already read above -- so the finished artifact can be
+    # asked this too, and the file is open either way.
+    $publisher = "$($stampedInfo.CompanyName)".Trim()
+    $author = Get-DeclaredAuthor (Join-Path $Repo 'pyproject.toml')
+    if ($publisher -ne $author) {
+        Write-Fail "the installer says $publisher, pyproject.toml says $author."
+        Write-Host '    Bring AppPublisher in packaging\net-preset.iss back in step.' -ForegroundColor Red
+        exit 1
+    }
+    Write-Ok "the installer names $publisher as the publisher"
 }
 finally {
     Pop-Location

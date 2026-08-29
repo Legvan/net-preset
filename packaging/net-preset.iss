@@ -1,4 +1,4 @@
-﻿; Inno Setup script for net-preset.
+; Inno Setup script for net-preset.
 ;
 ; Installs per-machine, into Program Files. This is the one place where this script
 ; deliberately does not follow the sibling project. card-wedge installs per-user and
@@ -30,6 +30,11 @@
 ; catches that afterwards, by reading the version back out of the compiled file
 ; and comparing it against pyproject.toml -- but only afterwards. Bump both.
 #define AppVersion "0.2.0"
+; The same story, and watched the same way. This is a second copy of the
+; authors entry in pyproject.toml, which packaging\net-preset.spec writes into
+; net-preset.exe as CompanyName. Inno makes AppPublisher the default for
+; VersionInfoCompany, so it lands in this file's own version resource as well,
+; and build.ps1 reads it back out and compares the two. Bump both.
 #define AppPublisher "Legvan"
 #define AppExeName "net-preset.exe"
 #define AppURL "https://github.com/Legvan/net-preset"
@@ -75,13 +80,17 @@ WizardStyle=modern
 ; what its wizard wears in the taskbar and in Alt-Tab. Relative to this file,
 ; which is how ISCC resolves a path that is not absolute.
 ;
-; There is deliberately no IconFilename on any entry under [Icons] below. A
-; shortcut with none takes its icon from the file it points at, and all three
-; point at net-preset.exe, which carries the same artwork in its own resources
-; by way of icon= in packaging\net-preset.spec. UninstallDisplayIcon already
-; names that executable too, so the Apps & features entry is covered by the
-; same one line. Naming the .ico again here would add three more places to
-; keep in step and would put the icon in front of Windows twice.
+; This one directive covers more than the setup program. Inno documents
+; SetupIconFile as the icon for Setup *and Uninstall*, so unins000.exe wears it
+; too, and UninstallDisplayIcon below points Apps & features at net-preset.exe,
+; which carries the same artwork in its own resources by way of icon= in
+; packaging\net-preset.spec.
+;
+; That is why there is deliberately no IconFilename on any entry under [Icons]
+; below. A shortcut with none takes its icon from the file it points at: two of
+; the three point at net-preset.exe and the third at {uninstallexe}, and both of
+; those files have the icon already. Naming the .ico again here would add three
+; more places to keep in step and would put the icon in front of Windows twice.
 SetupIconFile=..\assets\net-preset.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
