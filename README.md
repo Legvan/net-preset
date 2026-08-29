@@ -25,7 +25,7 @@ no runtime dependency of any kind.
 - One physical Ethernet card. More than one is fine — a picker appears.
 - Administrator rights. Changing IPv4 configuration requires them, and that is the whole
   point of the program, so it asks once at launch rather than at every click.
-- **Python 3.14 or later**, if you run from source. Not 3.13: four modules use PEP 758
+- **Python 3.14 or later**, if you run from source. Not 3.13: three modules use PEP 758
   `except` syntax, so an older interpreter fails with a `SyntaxError` at import rather than
   a readable message about the version.
 
