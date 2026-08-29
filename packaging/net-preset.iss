@@ -29,7 +29,7 @@
 ; features and in its own uninstall entry for the rest of its life. build.ps1
 ; catches that afterwards, by reading the version back out of the compiled file
 ; and comparing it against pyproject.toml -- but only afterwards. Bump both.
-#define AppVersion "0.2.0"
+#define AppVersion "0.3.0"
 ; The same story, and watched the same way. This is a second copy of the
 ; authors entry in pyproject.toml, which packaging\net-preset.spec writes into
 ; net-preset.exe as CompanyName. Inno makes AppPublisher the default for
