@@ -401,9 +401,10 @@ finally {
 Write-Host ''
 Write-Host '  Done.' -ForegroundColor Green
 Write-Host '  Test both artifacts before shipping them: launch dist\net-preset.exe, accept' -ForegroundColor DarkGray
-Write-Host '  the UAC prompt, and confirm a window titled net-preset appears. Then run' -ForegroundColor DarkGray
-Write-Host '  dist\net-preset-setup.exe, tick the desktop shortcut, and confirm it lands in' -ForegroundColor DarkGray
-Write-Host '  Program Files and starts from the Start Menu.' -ForegroundColor DarkGray
+Write-Host '  the UAC prompt, and confirm a window titled net-preset appears, with the plug' -ForegroundColor DarkGray
+Write-Host '  in its title bar rather than Tk''s feather. Then run dist\net-preset-setup.exe,' -ForegroundColor DarkGray
+Write-Host '  tick the desktop shortcut, and confirm it lands in Program Files and starts' -ForegroundColor DarkGray
+Write-Host '  from the Start Menu with the same icon on the shortcut.' -ForegroundColor DarkGray
 Write-Host '  If either is refused instead -- "Zasady kontroli aplikacji zablokowaly ten plik" --' -ForegroundColor DarkGray
 Write-Host '  that is Smart App Control declining an unsigned binary, not a broken build.' -ForegroundColor DarkGray
 Write-Host ''
