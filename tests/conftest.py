@@ -173,7 +173,7 @@ def clear_default_icon(window) -> None:
 # GetIconInfoExW is what tells the two apart without a control to compare
 # against: an icon Tk loaded out of its own DLL names that DLL and the resource
 # "tk", and one loaded from a file names neither.
-_FIRST_ROOT_PROBE = r"""
+_FIRST_ROOT_PROBE_SOURCE = r"""
 import ctypes, sys, time, tkinter as tk
 from ctypes import wintypes
 from pathlib import Path
@@ -186,14 +186,22 @@ module.settings_path = lambda: store / "settings.json"
 module.ethernet_adapters = lambda: []
 
 window = None
+failure = None
 for attempt in range(8):
     try:
         window = module.Application()
         break
-    except tk.TclError:
+    except tk.TclError as error:
+        failure = error
+        # The same two conditions new_root tells apart, told apart here for the
+        # same reason: only one of them is worth worrying about, and a machine
+        # with nowhere to draw does not improve on the next attempt.
+        if any(marker in str(error).lower() for marker in MISSING_DISPLAY):
+            print(failure)
+            raise SystemExit(4)
         time.sleep(0.05 * (attempt + 1))
 if window is None:
-    print("FLAKE")
+    print(failure)
     raise SystemExit(3)
 window.withdraw()
 window.update()
@@ -231,6 +239,12 @@ print(info.szResName)
 window.destroy()
 """
 
+# One copy of the markers, shared with new_root above rather than written out
+# again inside a string the linter cannot see into.
+_FIRST_ROOT_PROBE = _FIRST_ROOT_PROBE_SOURCE.replace(
+    "MISSING_DISPLAY", repr(_MISSING_DISPLAY), 1
+)
+
 
 def first_root_icon(store) -> tuple[int, str, str]:
     """(class icon, the module it came out of, the resource it was) for a fresh window.
@@ -247,8 +261,13 @@ def first_root_icon(store) -> tuple[int, str, str]:
         text=True,
         timeout=120,
     )
+    if finished.returncode == 4:
+        pytest.skip(f"no display available: {finished.stdout.strip()}")
     if finished.returncode == 3:
-        pytest.skip("Tk would not start in the probe process, so this test lost its coverage")
+        pytest.skip(
+            f"Tk would not start in the probe process in 8 attempts and this is NOT a "
+            f"missing display, so this test lost its coverage: {finished.stdout.strip()}"
+        )
     assert finished.returncode == 0, f"the probe failed:\n{finished.stdout}\n{finished.stderr}"
     handle, module, resource = finished.stdout.splitlines()[:3]
     return int(handle), module, resource
