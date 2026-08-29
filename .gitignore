@@ -21,6 +21,10 @@ dist/
 .mypy_cache/
 .coverage
 htmlcov/
+# The report .github\workflows\build.yml asks pytest for, so that the workflow
+# can read which tests skipped instead of parsing a summary line. It lands in
+# the working tree of anyone who runs that command to reproduce a red run.
+junit.xml
 
 # Agent working directories. These hold specifications, implementation plans and
 # task reports: a record of how the program was built, not the program itself,

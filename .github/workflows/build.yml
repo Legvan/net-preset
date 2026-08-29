@@ -1,0 +1,185 @@
+name: build
+
+# Code signing is not available to this project, so a build anyone can inspect is
+# the only provenance a download has. Every artifact published from here should
+# trace back to a commit in this repository and to a run whose log says what was
+# compiled, from what source, with what toolchain, and what the finished files
+# hash to. That is not a signature and does not stand in for one -- Smart App
+# Control goes on judging each unsigned binary on its own, and README.md records
+# it doing so in both directions -- but it is the whole difference between a file
+# from a stranger and a file with a history. Signing is the fix, and until there
+# is a certificate this is what there is.
+#
+# There is a second reason, and today it is the more immediate one. README.md
+# says plainly that every measurement in it was taken on one Windows 11 laptop
+# with one Ethernet adapter. A runner is the second machine this program has ever
+# run on: a different Windows build, a virtual network adapter, a registry nobody
+# here curated, and an interpreter installed from scratch. Three tests read the
+# live IP stack and the live registry rather than a fixture, and this is the only
+# place they meet anything but the development machine.
+#
+# Releases are not published from here. A run's artifacts are downloadable from
+# the run, which is what the argument above needs; attaching them to a release is
+# a deliberate act and stays one.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Read out of .python-version rather than written here as well. The version
+      # is already declared twice -- there and as requires-python in
+      # pyproject.toml -- and a third hand-maintained copy is exactly the drift
+      # build.ps1 exists to police in the installer.
+      #
+      # 3.14 is a floor, not a preference. adapters.py, settings.py and store.py
+      # use the PEP 758 form `except OSError, ValueError:`, which 3.13 cannot
+      # parse, so an older interpreter fails with a SyntaxError at import rather
+      # than with anything that reads like a version problem. The sibling project
+      # pins 3.13 because pyscard forces it; this project has no runtime
+      # dependency at all, and nothing pulling the other way.
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        run: pip install uv
+
+      # --locked, so a run cannot quietly resolve something the lock file does
+      # not name. There are no runtime dependencies to resolve; everything here
+      # is the dev group -- ruff, pytest, PyInstaller.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      # --junit-xml so the step below can read what was skipped and why, instead
+      # of parsing a summary line. -rs prints the same reasons into this step's
+      # log, which is what makes the next step's verdict actionable without
+      # downloading anything.
+      - name: Test
+        run: uv run pytest -q -rs --junit-xml=junit.xml
+
+      # A green run that quietly skipped every window test is a failure this
+      # project has already paid for once. A transient Tcl read failure on the
+      # development machine was being reported as "no display available" and
+      # skipping the display tests in seven runs out of twelve, and it hid a
+      # mutation that should have failed the suite; tests\conftest.py was changed
+      # to tell a machine with nowhere to draw apart from that flake. But a skip
+      # is still a dot in pytest's output and still exit code zero, and nobody
+      # reads a green run. Tk may or may not have a usable display on a runner,
+      # and this is where that gets said out loud.
+      #
+      # So a skip is not merely counted, it fails the job -- with one exception,
+      # named here rather than tolerated silently. test_apply.py pins the
+      # OEM-code-page fallback against cp852, which only a Polish Windows has,
+      # and skips itself elsewhere; its reason says "OEM page" and this runner is
+      # not Polish. Nothing else in the suite has any business skipping here: the
+      # platform guards all read `sys.platform != "win32"`, which is false on a
+      # Windows runner, and every remaining skip path in the tree is conftest.py
+      # giving up on Tk.
+      #
+      # If it turns out Tk cannot start on a runner at all, the answer is to
+      # write that down here, with the reason Tk gives, and not to let the skips
+      # back through unread.
+      - name: Refuse a run that skipped a test it should have run
+        shell: pwsh
+        run: |
+          $results = [xml](Get-Content junit.xml -Raw)
+          $suite = $results.testsuites.testsuite
+          "$($suite.tests) tests, $($suite.skipped) skipped, $($suite.failures) failed, $($suite.errors) errored."
+
+          $expected = 'OEM page'
+          $skipped = @($results.SelectNodes('//testcase/skipped'))
+          foreach ($node in $skipped) {
+            $case = $node.ParentNode
+            "  skipped: $($case.classname).$($case.name)"
+            "           $($node.GetAttribute('message'))"
+          }
+
+          $unexpected = @($skipped | Where-Object { $_.GetAttribute('message') -notlike "*$expected*" })
+          if ($unexpected.Count -gt 0) {
+            Write-Host "::error::$($unexpected.Count) test(s) skipped for a reason this runner did not expect. A skipped window test is coverage this run lost, not coverage it did not need."
+            exit 1
+          }
+          "No unexpected skips."
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # build.ps1 looks for ISCC.exe in six fixed places rather than on PATH,
+      # because none of Inno Setup's installers put it there. choco lands it in
+      # "C:\Program Files (x86)\Inno Setup 6", which is the second of the six.
+      # It has to be installed before the script runs and not around it: there is
+      # deliberately no switch to skip the installer step, so a runner without
+      # Inno Setup stops the build one step from the end with the executable
+      # already built and the installer missing.
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # The script, not a re-implementation of it. It syncs, lints and runs the
+      # whole suite again before packaging anything, redraws
+      # assets\net-preset.ico and compares it with the committed file, and then
+      # reads the manifest, the icon, the version resource and the installer's
+      # version and publisher back out of the finished binaries. Repeating the
+      # test job is the point: build.ps1 is what a maintainer runs, and a
+      # workflow that checked some other sequence would say nothing about it.
+      #
+      # This is also the first time the icon comparison has run anywhere but the
+      # development machine. The drawing is pure standard library and came out
+      # identical under three CPython 3.14+ builds here, but its two largest
+      # entries are PNG, and a PNG is a deflate stream: the check is only as
+      # reproducible as the zlib the interpreter was built against. That is
+      # another reason the interpreter is a 3.14 floor rather than free.
+      - name: Build the executable and the installer
+        shell: pwsh
+        run: .\build.ps1
+
+      # The hashes are the provenance. In the log they are stamped with the
+      # commit that produced them and cannot be edited afterwards, so a
+      # downloaded file can be checked against a run rather than against
+      # somebody's word for it.
+      - name: Record artifact hashes
+        shell: pwsh
+        run: |
+          Get-FileHash dist\net-preset.exe, dist\net-preset-setup.exe -Algorithm SHA256 |
+            Format-List Path, Hash
+
+      # Both artifacts, because they are one build handed over two ways and the
+      # README sends an operator to whichever one their machine will accept.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: net-preset-windows
+          path: |
+            dist/net-preset.exe
+            dist/net-preset-setup.exe
+          if-no-files-found: error
