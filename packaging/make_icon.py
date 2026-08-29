@@ -104,9 +104,7 @@ class Canvas:
 
     def rect(self, x, y, width, height, colour, radius: float = 0) -> None:
         if radius <= 0:
-            self.polygon(
-                [(x, y), (x + width, y), (x + width, y + height), (x, y + height)], colour
-            )
+            self.polygon([(x, y), (x + width, y), (x + width, y + height), (x, y + height)], colour)
             return
         corners = (
             (x + width - radius, y + radius, -90),
@@ -180,9 +178,7 @@ def draw(size: int):
 
 def png(rows) -> bytes:
     height, width = len(rows), len(rows[0])
-    raw = b"".join(
-        b"\x00" + b"".join(struct.pack("BBBB", *pixel) for pixel in row) for row in rows
-    )
+    raw = b"".join(b"\x00" + b"".join(struct.pack("BBBB", *pixel) for pixel in row) for row in rows)
 
     def chunk(tag: bytes, data: bytes) -> bytes:
         body = tag + data
@@ -231,18 +227,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit("usage: make_icon.py [output.ico]")
     target = Path(arguments[0]) if arguments else TARGET
 
-    images = {
-        size: (png(draw(size)) if size >= 128 else dib(draw(size))) for size in SIZES
-    }
+    images = {size: (png(draw(size)) if size >= 128 else dib(draw(size))) for size in SIZES}
     directory, blobs = [], []
     offset = 6 + 16 * len(images)
     for size in SIZES:
         blob = images[size]
         # Zero means 256 in an icon directory: the field is a single byte.
         stored = 0 if size >= 256 else size
-        directory.append(
-            struct.pack("<BBBBHHII", stored, stored, 0, 0, 1, 32, len(blob), offset)
-        )
+        directory.append(struct.pack("<BBBBHHII", stored, stored, 0, 0, 1, 32, len(blob), offset))
         blobs.append(blob)
         offset += len(blob)
 

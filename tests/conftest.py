@@ -241,9 +241,7 @@ window.destroy()
 
 # One copy of the markers, shared with new_root above rather than written out
 # again inside a string the linter cannot see into.
-_FIRST_ROOT_PROBE = _FIRST_ROOT_PROBE_SOURCE.replace(
-    "MISSING_DISPLAY", repr(_MISSING_DISPLAY), 1
-)
+_FIRST_ROOT_PROBE = _FIRST_ROOT_PROBE_SOURCE.replace("MISSING_DISPLAY", repr(_MISSING_DISPLAY), 1)
 
 
 def first_root_icon(store) -> tuple[int, str, str]:
