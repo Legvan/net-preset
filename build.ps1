@@ -19,10 +19,11 @@
     Three things about this script are deliberate and should not be "simplified"
     away:
 
-    THE CHECKS COME FIRST. uv sync, ruff and pytest run before PyInstaller, and
-    any one of them failing stops the script with that tool's own exit code. A
-    build script that packages a red test suite is worse than no build script,
-    because the executable it hands over looks finished.
+    THE CHECKS COME FIRST. uv sync, ruff -- formatting and then lint -- and
+    pytest run before PyInstaller, and any one of them failing stops the script
+    with that tool's own exit code. A build script that packages a red test
+    suite is worse than no build script, because the executable it hands over
+    looks finished.
 
     THE ICON IS REDRAWN RATHER THAN TRUSTED. assets\net-preset.ico is generated
     by packaging\make_icon.py, so it can drift from the script that draws it in
@@ -231,6 +232,25 @@ try {
     $code = Invoke-Native { uv sync }
     if ($code -ne 0) { Write-Fail "uv sync exited with $code."; exit $code }
     Write-Ok 'environment is up to date'
+
+    Write-Step 'Checking formatting (ruff format --check)'
+
+    # Ahead of the lint step, which is where .github\workflows\build.yml runs it
+    # too: a contributor who fails this fails at the same step, with the same
+    # text, that the workflow will show them. Nothing here watched formatting
+    # until that workflow was written, and what it found had been sitting in two
+    # files for weeks -- ruff check has nothing to say about it, and the README
+    # lists ruff format as a thing to run rather than a thing that is checked.
+    # A formatting difference is the one kind of red build that says nothing at
+    # all about the program, so it is worth being told before pytest has run.
+    $code = Invoke-Native { uv run ruff format --check . }
+    if ($code -ne 0) {
+        Write-Fail "ruff format --check exited with $code."
+        Write-Host '    Format the tree and commit the result:' -ForegroundColor Red
+        Write-Host '        uv run ruff format .' -ForegroundColor White
+        exit $code
+    }
+    Write-Ok 'every file is formatted'
 
     Write-Step 'Linting (ruff)'
     $code = Invoke-Native { uv run ruff check . }
